@@ -44,7 +44,7 @@ importers:
 
   packages/entities:
     dependencies:
-      '@flush/signal-store':
+      '@fluch/signal-store':
         specifier: workspace:*
         version: link:../core
       '@preact/signals-core':
@@ -53,7 +53,7 @@ importers:
 
   packages/react:
     dependencies:
-      '@flush/signal-store':
+      '@fluch/signal-store':
         specifier: workspace:*
         version: link:../core
       '@preact/signals-core':

@@ -1,4 +1,4 @@
-# `@flush/signal-store` — Spécification v1
+# `@fluch/signal-store` — Spécification v1
 
 ## 1. Contexte & objectif
 
@@ -26,25 +26,25 @@ Lib React de state management inspirée de **NgRx SignalStore** (la feature `@ng
 ## 3. Architecture monorepo
 
 ```
-@flush/signal-store/                   ← repo
+@fluch/signal-store/                   ← repo
 ├── pnpm-workspace.yaml
 ├── package.json (private, root)
 ├── tsconfig.base.json
 ├── biome.json (ou eslint+prettier)
 ├── .changeset/
 └── packages/
-    ├── core/                          → @flush/signal-store
+    ├── core/                          → @fluch/signal-store
     │   peer: @preact/signals-core
-    ├── entities/                      → @flush/signal-store-entities
-    │   deps: @flush/signal-store
+    ├── entities/                      → @fluch/signal-store-entities
+    │   deps: @fluch/signal-store
     │   peer: @preact/signals-core
-    └── react/                         → @flush/signal-store-react   (option B)
-        peer: react, @preact/signals-react, @flush/signal-store
+    └── react/                         → @fluch/signal-store-react   (option B)
+        peer: react, @preact/signals-react, @fluch/signal-store
 ```
 
 Packages prévus pour v2 (à ne PAS implémenter maintenant) :
-- `@flush/signal-store-rxjs` — `rxMethod`, interop signal↔observable
-- `@flush/signal-store-devtools` — bridge Redux DevTools
+- `@fluch/signal-store-rxjs` — `rxMethod`, interop signal↔observable
+- `@fluch/signal-store-devtools` — bridge Redux DevTools
 
 **Stack** :
 - TypeScript strict
@@ -155,7 +155,7 @@ patchState(store, (s) => ({ count: s.count + 1 }));
 patchState(store, addEntity(todo), { filter: 'all' });  // multi-update
 ```
 
-### 4.6. `withEntities` (package `@flush/signal-store-entities`)
+### 4.6. `withEntities` (package `@fluch/signal-store-entities`)
 
 #### Cas mono-collection (default)
 
@@ -293,8 +293,8 @@ L'updater connaît la `collection` via le `config` argument. Le config par défa
 ## 6. Exemple complet attendu
 
 ```ts
-import { signalStore, withState, withComputed, withMethods, patchState } from '@flush/signal-store';
-import { withEntities, addEntity, updateEntity, removeEntity, setAllEntities } from '@flush/signal-store-entities';
+import { signalStore, withState, withComputed, withMethods, patchState } from '@fluch/signal-store';
+import { withEntities, addEntity, updateEntity, removeEntity, setAllEntities } from '@fluch/signal-store-entities';
 import { computed } from '@preact/signals-core';
 
 type Todo = { id: string; title: string; done: boolean };
@@ -389,9 +389,9 @@ Couverture cible : >90% sur core et entities. Vitest, pas de mocks de signals (u
 ## 9. Checklist de livraison v1
 
 - [ ] Repo monorepo pnpm initialisé, workspaces configurés
-- [ ] `@flush/signal-store` (core) : signalStore, withState, withComputed, withMethods, patchState
-- [ ] `@flush/signal-store-entities` : withEntities (mono + multi), tous les updaters listés en 4.6
-- [ ] `@flush/signal-store-react` : Provider + useStore (mode B)
+- [ ] `@fluch/signal-store` (core) : signalStore, withState, withComputed, withMethods, patchState
+- [ ] `@fluch/signal-store-entities` : withEntities (mono + multi), tous les updaters listés en 4.6
+- [ ] `@fluch/signal-store-react` : Provider + useStore (mode B)
 - [ ] Types parfaitement inférés sans annotation manuelle
 - [ ] Tests vitest >90% coverage sur core + entities
 - [ ] Build tsup ESM+CJS+dts, treeshakeable

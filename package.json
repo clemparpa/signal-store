@@ -1,8 +1,8 @@
 {
-  "name": "@flush/signal-store-monorepo",
+  "name": "@fluch/signal-store-monorepo",
   "version": "0.0.0",
   "private": true,
-  "description": "Monorepo for @flush/signal-store — NgRx SignalStore-inspired state management for React",
+  "description": "Monorepo for @fluch/signal-store — NgRx SignalStore-inspired state management for React",
   "license": "MIT",
   "engines": {
     "node": ">=22"

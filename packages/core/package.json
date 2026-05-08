@@ -1,5 +1,5 @@
 {
-  "name": "@flush/signal-store",
+  "name": "@fluch/signal-store",
   "version": "0.0.0",
   "description": "NgRx SignalStore-inspired state management for React, built on Preact signals",
   "license": "MIT",

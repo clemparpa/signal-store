@@ -20,15 +20,22 @@
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "pnpm build && changeset publish",
-    "verify": "pnpm lint && pnpm typecheck && pnpm test:run && pnpm build"
+    "verify": "pnpm lint && pnpm typecheck && pnpm test:run && pnpm build",
+    "prepare": "husky"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
     "@changesets/cli": "^2.27.0",
     "@types/node": "^22.0.0",
     "@vitest/coverage-v8": "^2.1.0",
+    "husky": "^9.1.0",
+    "lint-staged": "^15.2.0",
     "tsup": "^8.3.0",
     "typescript": "^5.6.0",
     "vitest": "^2.1.0"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx,json,jsonc}": ["biome check --write --no-errors-on-unmatched"],
+    "*.{md,yml,yaml}": ["biome format --write --no-errors-on-unmatched"]
   }
 }

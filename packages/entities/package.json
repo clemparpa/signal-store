@@ -1,0 +1,33 @@
+{
+  "name": "@flush/signal-store-entities",
+  "version": "0.0.0",
+  "description": "Entity collection helpers for @flush/signal-store (NgRx-style addEntity/updateEntity/removeEntity updaters)",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": ["dist"],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@flush/signal-store": "workspace:*"
+  },
+  "peerDependencies": {
+    "@preact/signals-core": "^1.8.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

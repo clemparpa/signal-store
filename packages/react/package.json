@@ -1,0 +1,35 @@
+{
+  "name": "@flush/signal-store-react",
+  "version": "0.0.0",
+  "description": "React Provider/useStore bindings for @flush/signal-store (option B: scoped instances)",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": ["dist"],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@flush/signal-store": "workspace:*"
+  },
+  "peerDependencies": {
+    "@preact/signals-core": "^1.8.0",
+    "@preact/signals-react": "^2.0.0",
+    "react": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

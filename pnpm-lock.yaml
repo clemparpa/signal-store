@@ -37,7 +37,7 @@ importers:
         version: 2.1.9(@types/node@22.19.17)
 
   packages/core:
-    dependencies:
+    devDependencies:
       '@preact/signals-core':
         specifier: ^1.8.0
         version: 1.14.1

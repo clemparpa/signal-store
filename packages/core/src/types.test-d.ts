@@ -1,7 +1,9 @@
-import type { Signal } from '@preact/signals-core';
+import { type ReadonlySignal, type Signal, computed } from '@preact/signals-core';
 import { describe, expectTypeOf, it } from 'vitest';
 import { patchState } from './patch-state';
 import { signalStore } from './signal-store';
+import { withComputed } from './with-computed';
+import { withMethods } from './with-methods';
 import { withState } from './with-state';
 
 describe('signalStore + withState type inference', () => {
@@ -51,5 +53,87 @@ describe('patchState type inference', () => {
 
     // @ts-expect-error — string is not assignable to number
     patchState(store, { a: 'wrong' });
+  });
+});
+
+describe('withComputed type inference', () => {
+  it('infers state signals as input without annotation', () => {
+    signalStore(
+      withState({ count: 0, name: 'foo' }),
+      withComputed((input) => {
+        expectTypeOf(input.count).toEqualTypeOf<Signal<number>>();
+        expectTypeOf(input.name).toEqualTypeOf<Signal<string>>();
+        return { double: computed(() => input.count.value * 2) };
+      }),
+    );
+  });
+
+  it('exposes computed signals on the final store as ReadonlySignal', () => {
+    const store = signalStore(
+      withState({ count: 0 }),
+      withComputed(({ count }) => ({
+        double: computed(() => count.value * 2),
+      })),
+    );
+
+    expectTypeOf(store.count).toEqualTypeOf<Signal<number>>();
+    expectTypeOf(store.double).toEqualTypeOf<ReadonlySignal<number>>();
+  });
+
+  it('chained withComputed sees previous computed in input', () => {
+    signalStore(
+      withState({ count: 0 }),
+      withComputed(({ count }) => ({
+        double: computed(() => count.value * 2),
+      })),
+      withComputed((input) => {
+        expectTypeOf(input.count).toEqualTypeOf<Signal<number>>();
+        expectTypeOf(input.double).toEqualTypeOf<ReadonlySignal<number>>();
+        return { quadruple: computed(() => input.double.value * 2) };
+      }),
+    );
+  });
+});
+
+describe('withMethods type inference', () => {
+  it('infers state + computed signals as input without annotation', () => {
+    signalStore(
+      withState({ count: 0 }),
+      withComputed(({ count }) => ({
+        double: computed(() => count.value * 2),
+      })),
+      withMethods((s) => {
+        expectTypeOf(s.count).toEqualTypeOf<Signal<number>>();
+        expectTypeOf(s.double).toEqualTypeOf<ReadonlySignal<number>>();
+        return { inc: () => patchState(s, { count: s.count.value + 1 }) };
+      }),
+    );
+  });
+
+  it('exposes methods on the final store with correct signatures', () => {
+    const store = signalStore(
+      withState({ count: 0 }),
+      withMethods((s) => ({
+        inc: () => patchState(s, { count: s.count.value + 1 }),
+        add: (n: number) => patchState(s, { count: s.count.value + n }),
+      })),
+    );
+
+    expectTypeOf(store.inc).toEqualTypeOf<() => void>();
+    expectTypeOf(store.add).toEqualTypeOf<(n: number) => void>();
+  });
+
+  it('rejects calls with wrong argument types', () => {
+    const store = signalStore(
+      withState({ count: 0 }),
+      withMethods((s) => ({
+        add: (n: number) => patchState(s, { count: s.count.value + n }),
+      })),
+    );
+
+    // @ts-expect-error — string is not assignable to number
+    store.add('one');
+    // @ts-expect-error — missing required argument
+    store.add();
   });
 });

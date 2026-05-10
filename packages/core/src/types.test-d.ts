@@ -1,4 +1,4 @@
-import { type ReadonlySignal, type Signal, computed } from '@preact/signals-core';
+import { computed, type ReadonlySignal, type Signal } from '@preact/signals-core';
 import { describe, expectTypeOf, it } from 'vitest';
 import { patchState } from './patch-state';
 import { signalStore } from './signal-store';

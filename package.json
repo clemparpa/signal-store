@@ -35,7 +35,11 @@
     "vitest": "^2.1.0"
   },
   "lint-staged": {
-    "*.{ts,tsx,js,jsx,json,jsonc}": ["biome check --write --no-errors-on-unmatched"],
-    "*.{md,yml,yaml}": ["biome format --write --no-errors-on-unmatched"]
+    "*.{ts,tsx,js,jsx,json,jsonc}": [
+      "biome check --write --no-errors-on-unmatched"
+    ],
+    "*.{md,yml,yaml}": [
+      "biome format --write --no-errors-on-unmatched"
+    ]
   }
 }

@@ -141,3 +141,7 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# starlight-typedoc auto-generated API reference
+apps/docs/src/content/docs/api/
+

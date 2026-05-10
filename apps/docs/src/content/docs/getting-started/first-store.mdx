@@ -1,0 +1,60 @@
+---
+title: Your first store
+description: Build a counter store with withState, withComputed, withMethods, and patchState.
+---
+
+A store is composed by passing features to `signalStore`. The most common features are `withState` (declare initial state), `withComputed` (derived values), and `withMethods` (mutations + actions).
+
+## A counter store
+
+```ts
+import {
+	signalStore,
+	withState,
+	withComputed,
+	withMethods,
+	patchState,
+} from '@fluch/signal-store';
+import { computed } from '@preact/signals-core';
+
+export const counter = signalStore(
+	withState({ count: 0 }),
+
+	withComputed(({ count }) => ({
+		double: computed(() => count.value * 2),
+		isPositive: computed(() => count.value > 0),
+	})),
+
+	withMethods((store) => ({
+		increment: () => patchState(store, { count: store.count.value + 1 }),
+		decrement: () => patchState(store, { count: store.count.value - 1 }),
+		reset: () => patchState(store, { count: 0 }),
+	})),
+);
+```
+
+## Reading state
+
+Each top-level key of the state becomes its own signal. Read it via `.value`:
+
+```ts
+counter.count.value; // 0
+counter.double.value; // 0
+counter.isPositive.value; // false
+```
+
+## Calling methods
+
+```ts
+counter.increment();
+counter.increment();
+counter.count.value; // 2
+counter.double.value; // 4
+counter.isPositive.value; // true
+```
+
+## Reactivity
+
+In React (with `@preact/signals-react` installed in the app), reading `counter.count.value` inside a component subscribes that component to changes — no `useState`, no selector, no memoization needed. A call to `counter.increment()` re-renders only the components that read `count` or any computed derived from it.
+
+For the full API surface, see the [API Reference](/api/).

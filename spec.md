@@ -32,6 +32,8 @@ Lib React de state management inspirée de **NgRx SignalStore** (la feature `@ng
 ├── tsconfig.base.json
 ├── biome.json (ou eslint+prettier)
 ├── .changeset/
+├── apps/
+│   └── docs/                          → site Starlight (privé, non publié)
 └── packages/
     ├── core/                          → @fluch/signal-store
     │   peer: @preact/signals-core
@@ -377,7 +379,200 @@ Couverture cible : >90% sur core et entities. Vitest, pas de mocks de signals (u
 - `removeEntities` avec predicate
 - `entities` computed se met à jour après chaque mutation
 
-## 8. Hors scope v1 — design préliminaire pour v2
+## 8. Sécurité & maintenance des dépendances
+
+### 8.1. Dependabot
+
+Schedule **hebdomadaire** (lundi matin) sur deux écosystèmes :
+
+- `npm` — racine du monorepo, scan automatique des workspaces.
+- `github-actions` — versions des actions épinglées dans les workflows CI/release/déploiement.
+
+Configuration `.github/dependabot.yml` :
+
+```yaml
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    groups:
+      dev-dependencies:
+        dependency-type: "development"
+        update-types: ["minor", "patch"]
+      production-patches:
+        dependency-type: "production"
+        update-types: ["patch"]
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+```
+
+Le grouping fusionne plusieurs bumps en une seule PR pour limiter le bruit (sinon 1 PR par dep et par semaine).
+
+### 8.2. Audit CI bloquant
+
+Job ajouté au workflow CI (`.github/workflows/ci.yml`) :
+
+```yaml
+audit:
+  runs-on: ubuntu-latest
+  steps:
+    - uses: actions/checkout@v4
+    - uses: pnpm/action-setup@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 20
+        cache: pnpm
+    - run: pnpm install --frozen-lockfile
+    - name: Audit (block on high+critical)
+      run: pnpm audit --audit-level=high
+    - name: Audit moderate (warn-only)
+      if: success() || failure()
+      continue-on-error: true
+      run: pnpm audit --audit-level=moderate
+```
+
+- Premier step : exit non-zéro si vulnérabilité **high** ou **critical** → la PR ne peut pas être mergée.
+- Second step : list les **moderate** sans bloquer (visibilité).
+- Job ajouté aux **required status checks** de la branche `main` côté GitHub Settings.
+
+### 8.3. Auto-merge des PR Dependabot
+
+Workflow `.github/workflows/dependabot-auto-merge.yml`. Auto-merge :
+
+- les bumps **patch** sur toutes les dépendances ;
+- les bumps **minor** sur les dépendances **de développement** uniquement.
+
+Conditions : auteur = `dependabot[bot]`, tous les status checks verts (CI + audit). Les bumps **major**, ou **minor sur prod-deps**, restent en review manuelle (risque de breaking change).
+
+```yaml
+name: Dependabot auto-merge
+on: pull_request_target
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  auto-merge:
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - id: meta
+        uses: dependabot/fetch-metadata@v2
+      - if: |
+          steps.meta.outputs.update-type == 'version-update:semver-patch' ||
+          (steps.meta.outputs.update-type == 'version-update:semver-minor' &&
+           steps.meta.outputs.dependency-type == 'direct:development')
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
+## 9. Documentation — site Starlight
+
+### 9.1. Emplacement & stack
+
+Workspace dédié [apps/docs/](apps/docs/), **privé** (`"private": true` dans son `package.json`, jamais publié sur npm).
+
+Stack :
+
+- **Astro + Starlight** — site statique, MDX-first, sidebar/search/themes intégrés, perfs excellentes.
+- **starlight-typedoc** — plugin officiel qui transforme la sortie TypeDoc en pages MDX directement consommables par Starlight (navigation, linking croisé corrects).
+- **TypeDoc** — extraction de la référence API depuis les sources des trois packages publics.
+
+Le glob `apps/*` est ajouté au [pnpm-workspace.yaml](pnpm-workspace.yaml) pour que pnpm pickup le workspace.
+
+### 9.2. Structure de contenu
+
+```
+apps/docs/
+├── astro.config.mjs        ← config Starlight + starlight-typedoc + sidebar
+├── package.json            ← privé, deps: astro, @astrojs/starlight, starlight-typedoc, typedoc
+├── typedoc.json            ← entry points des 3 packages
+├── public/
+│   └── CNAME               ← fluch.dev (à ajouter quand le domaine sera enregistré)
+└── src/
+    └── content/
+        └── docs/
+            ├── index.mdx                  ← landing (placeholder v1, version finale plus tard)
+            ├── getting-started/
+            │   ├── installation.mdx
+            │   └── first-store.mdx
+            ├── guides/                    ← blog & tutoriaux (placeholder v1, contenu plus tard)
+            ├── packages/
+            │   ├── core.mdx               ← présentation @fluch/signal-store
+            │   ├── entities.mdx           ← présentation @fluch/signal-store-entities
+            │   └── react.mdx              ← présentation @fluch/signal-store-react
+            └── api/                       ← généré par starlight-typedoc, NON commit (gitignore)
+```
+
+Sidebar Starlight (déclarée dans `astro.config.mjs`) :
+
+1. **Getting started** — installation, premier store
+2. **Guides** — vide en v1, structure prête à recevoir blog/tutoriaux
+3. **Packages** — une page par package (core, entities, react), exemples + surface API
+4. **API Reference** — auto-généré par `starlight-typedoc`, non éditable manuellement
+
+### 9.3. TypeDoc
+
+Configuration `apps/docs/typedoc.json` :
+
+```json
+{
+  "entryPoints": [
+    "../../packages/core/src/index.ts",
+    "../../packages/entities/src/index.ts",
+    "../../packages/react/src/index.ts"
+  ],
+  "entryPointStrategy": "expand",
+  "tsconfig": "../../tsconfig.base.json",
+  "excludeInternal": true,
+  "excludePrivate": true
+}
+```
+
+`starlight-typedoc` est branché dans `astro.config.mjs` avec ces entryPoints et écrit dans `src/content/docs/api/` au moment du build.
+
+### 9.4. Build & déploiement — GitHub Pages
+
+**Choix retenu : GitHub Pages.** Justification :
+
+- aucune dépendance externe (pas de compte Cloudflare/Vercel à gérer) ;
+- workflow GitHub Actions natif (`actions/configure-pages`, `actions/deploy-pages`) ;
+- custom domain trivial (fichier `public/CNAME` + record DNS) ;
+- bande passante / quota largement suffisants pour une doc de lib OSS.
+
+**Trade-off accepté** : pas de preview deployment par PR. Si ce besoin émerge plus tard, bascule possible vers Cloudflare Pages en ~10 min de config — non bloquant pour v1.
+
+Workflow `.github/workflows/deploy-docs.yml` :
+
+- déclenché sur `push` vers `main` quand `apps/docs/**`, `packages/**/src/**`, `packages/**/package.json` ou `pnpm-lock.yaml` changent ;
+- `workflow_dispatch` aussi pour redéploiement manuel ;
+- jobs : install → typedoc + astro build → upload artifact → `actions/deploy-pages`.
+
+Activation côté repo (à faire **manuellement** une fois après merge) : Settings → Pages → Source = "GitHub Actions".
+
+### 9.5. Versioning de la doc
+
+**Latest only en v1.** La doc reflète la dernière version publiée sur `main`, pas de snapshot par version majeure.
+
+Quand v2 arrivera (breaking changes), bascule vers [`starlight-versions`](https://starlight-versions.netlify.app/) ou snapshot figé sous `/v1/`. Migration locale au site, pas à la lib — pas de dette technique embarquée dans v1.
+
+### 9.6. Domaine
+
+V1 : URL GitHub Pages par défaut (`clemparpa.github.io/signal-store` ou équivalent), pas de custom domain. Le fichier `public/CNAME` + DNS seront ajoutés quand `fluch.dev` sera enregistré. Pas de blocage v1.
+
+### 9.7. Langue
+
+**EN par défaut** (public international). L'i18n Starlight (FR notamment) sera évalué après v1 selon traffic et retours.
+
+## 10. Hors scope v1 — design préliminaire pour v2
 
 À documenter mais NE PAS implémenter :
 
@@ -387,7 +582,7 @@ Couverture cible : >90% sur core et entities. Vitest, pas de mocks de signals (u
 - **DevTools** : intercepter chaque `patchState`, push dans Redux DevTools extension avec un nom d'action dérivé de la stack (`addTodo`, `setFilter`).
 - **Sort comparator entities** : option `sortComparer` dans `withEntities`. Auto-tri à chaque insert/update.
 
-## 9. Checklist de livraison v1
+## 11. Checklist de livraison v1
 
 - [ ] Repo monorepo pnpm initialisé, workspaces configurés
 - [ ] `@fluch/signal-store` (core) : signalStore, withState, withComputed, withMethods, patchState
@@ -398,5 +593,9 @@ Couverture cible : >90% sur core et entities. Vitest, pas de mocks de signals (u
 - [ ] Build tsup ESM+CJS+dts, treeshakeable
 - [ ] README dans chaque package avec exemple minimal
 - [ ] `.changeset/` configuré pour publication
-- [ ] CI GitHub Actions : lint + typecheck + test + build
+- [ ] CI GitHub Actions : lint + typecheck + test + build + audit
+- [ ] Dependabot actif (npm + github-actions, weekly, grouped)
+- [ ] Audit CI bloquant high + critical, alerte moderate
+- [ ] Auto-merge Dependabot configuré (patch toutes deps, minor dev-deps)
+- [ ] Site doc Starlight déployé sur GitHub Pages (intro packages + API ref TypeDoc)
 - [ ] Bundle size cible : core <3kb gzip, entities <2kb gzip

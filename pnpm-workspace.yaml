@@ -1,8 +1,10 @@
 packages:
   - 'packages/*'
+  - 'apps/*'
 
 # Allow these packages to run their post-install build scripts.
-# Both ship platform-specific native binaries that need to be installed.
+# They ship platform-specific native binaries that need to be installed.
 allowBuilds:
   '@biomejs/biome': true
   esbuild: true
+  sharp: true

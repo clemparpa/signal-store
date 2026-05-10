@@ -1,0 +1,27 @@
+---
+title: Installation
+description: Install @fluch/signal-store and its peer dependency.
+---
+
+import { Tabs, TabItem, Code } from '@astrojs/starlight/components';
+
+## Install
+
+<Tabs syncKey="pkg">
+	<TabItem label="pnpm">
+		<Code code="pnpm add @fluch/signal-store @preact/signals-core" lang="bash" />
+	</TabItem>
+	<TabItem label="npm">
+		<Code code="npm install @fluch/signal-store @preact/signals-core" lang="bash" />
+	</TabItem>
+	<TabItem label="yarn">
+		<Code code="yarn add @fluch/signal-store @preact/signals-core" lang="bash" />
+	</TabItem>
+</Tabs>
+
+`@preact/signals-core` is a peer dependency — the library reads and writes Preact signals directly, so it must be installed alongside.
+
+## Requirements
+
+- Node.js 22 or later (for the toolchain — the library itself runs anywhere Preact signals run).
+- TypeScript 5+ recommended for full inference, but not required.

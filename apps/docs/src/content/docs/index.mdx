@@ -1,0 +1,33 @@
+---
+title: '@fluch/signal-store'
+description: NgRx SignalStore-inspired state management for React, built on Preact signals
+template: splash
+hero:
+  tagline: Composable, type-safe, fine-grained reactive state for React.
+  actions:
+    - text: Get started
+      link: /signal-store/getting-started/installation/
+      icon: right-arrow
+      variant: primary
+    - text: API Reference
+      link: /signal-store/api/
+      icon: external
+    - text: GitHub
+      link: https://github.com/clemparpa/signal-store
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+<CardGrid stagger>
+	<Card title="Composable" icon="puzzle">
+		Build stores by composing `withState`, `withComputed`, and `withMethods`.
+	</Card>
+	<Card title="Type-safe" icon="approve-check">
+		Full TypeScript inference without manual annotations.
+	</Card>
+	<Card title="Fine-grained" icon="rocket">
+		One signal per top-level state key — no selector memoization required.
+	</Card>
+</CardGrid>

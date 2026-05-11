@@ -1,4 +1,4 @@
-import { computed, type ReadonlySignal, type Signal } from '@preact/signals-core';
+import { computed, type ReadonlySignal } from '@preact/signals-core';
 import { describe, expectTypeOf, it } from 'vitest';
 import { patchState } from './patch-state';
 import { signalStore } from './signal-store';
@@ -10,14 +10,14 @@ describe('signalStore + withState type inference', () => {
   it('infers a signal per top-level key without manual annotation', () => {
     const store = signalStore(withState({ count: 0, name: 'foo' }));
 
-    expectTypeOf(store.count).toEqualTypeOf<Signal<number>>();
-    expectTypeOf(store.name).toEqualTypeOf<Signal<string>>();
+    expectTypeOf(store.count).toEqualTypeOf<ReadonlySignal<number>>();
+    expectTypeOf(store.name).toEqualTypeOf<ReadonlySignal<string>>();
   });
 
-  it('preserves nested object types atomically as Signal<Obj>', () => {
+  it('preserves nested object types atomically as ReadonlySignal<Obj>', () => {
     const store = signalStore(withState({ user: { id: 1, name: 'a' } }));
 
-    expectTypeOf(store.user).toEqualTypeOf<Signal<{ id: number; name: string }>>();
+    expectTypeOf(store.user).toEqualTypeOf<ReadonlySignal<{ id: number; name: string }>>();
   });
 
   it('infers union and array literal types correctly', () => {
@@ -25,8 +25,8 @@ describe('signalStore + withState type inference', () => {
       withState({ status: 'idle' as 'idle' | 'loading', tags: ['a', 'b'] }),
     );
 
-    expectTypeOf(store.status).toEqualTypeOf<Signal<'idle' | 'loading'>>();
-    expectTypeOf(store.tags).toEqualTypeOf<Signal<string[]>>();
+    expectTypeOf(store.status).toEqualTypeOf<ReadonlySignal<'idle' | 'loading'>>();
+    expectTypeOf(store.tags).toEqualTypeOf<ReadonlySignal<string[]>>();
   });
 });
 
@@ -61,8 +61,8 @@ describe('withComputed type inference', () => {
     signalStore(
       withState({ count: 0, name: 'foo' }),
       withComputed((input) => {
-        expectTypeOf(input.count).toEqualTypeOf<Signal<number>>();
-        expectTypeOf(input.name).toEqualTypeOf<Signal<string>>();
+        expectTypeOf(input.count).toEqualTypeOf<ReadonlySignal<number>>();
+        expectTypeOf(input.name).toEqualTypeOf<ReadonlySignal<string>>();
         return { double: computed(() => input.count.value * 2) };
       }),
     );
@@ -76,7 +76,7 @@ describe('withComputed type inference', () => {
       })),
     );
 
-    expectTypeOf(store.count).toEqualTypeOf<Signal<number>>();
+    expectTypeOf(store.count).toEqualTypeOf<ReadonlySignal<number>>();
     expectTypeOf(store.double).toEqualTypeOf<ReadonlySignal<number>>();
   });
 
@@ -87,7 +87,7 @@ describe('withComputed type inference', () => {
         double: computed(() => count.value * 2),
       })),
       withComputed((input) => {
-        expectTypeOf(input.count).toEqualTypeOf<Signal<number>>();
+        expectTypeOf(input.count).toEqualTypeOf<ReadonlySignal<number>>();
         expectTypeOf(input.double).toEqualTypeOf<ReadonlySignal<number>>();
         return { quadruple: computed(() => input.double.value * 2) };
       }),
@@ -103,7 +103,7 @@ describe('withMethods type inference', () => {
         double: computed(() => count.value * 2),
       })),
       withMethods((s) => {
-        expectTypeOf(s.count).toEqualTypeOf<Signal<number>>();
+        expectTypeOf(s.count).toEqualTypeOf<ReadonlySignal<number>>();
         expectTypeOf(s.double).toEqualTypeOf<ReadonlySignal<number>>();
         return { inc: () => patchState(s, { count: s.count.value + 1 }) };
       }),

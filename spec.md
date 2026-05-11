@@ -360,6 +360,18 @@ export function TodoApp() {
 
 Couverture cible : >90% sur core et entities. Vitest, pas de mocks de signals (utiliser les vrais).
 
+### Infrastructure vitest
+
+Pas de `projects` field dans [vitest.config.ts](vitest.config.ts) tant que tous les packages tournent dans le même environnement (node, sans setupFile, sans transformer custom). La config racine suffit — vitest découvre tous les `packages/*/src/**/*.test.ts` via le pattern par défaut `**/*.{test,spec}.?(c|m)[jt]s?(x)`.
+
+**À introduire quand** :
+
+- `@fluch/signal-store-react` ajoute des tests de composants (@testing-library/react) → besoin d'`environment: 'jsdom'` ou `'happy-dom'` pour ce package uniquement, core et entities restent en node.
+- Un package nécessite un setupFile spécifique (mocks globaux, polyfills, matchers custom).
+- Un package a besoin d'un transformer / d'aliases qui diffèrent des autres.
+
+**Pattern à appliquer** : ajouter `projects: ['packages/*']` dans le `test` block de [vitest.config.ts](vitest.config.ts) racine + créer un `vitest.config.ts` local au(x) package(s) concerné(s) avec ses overrides (environment, setupFiles, etc.). Ne **pas** réintroduire un fichier `vitest.workspace.ts` séparé — c'était l'API vitest ≤ 3, supprimée en vitest 4 au profit du champ `projects`.
+
 ### Core
 - `withState` crée un signal par clé top-level
 - `patchState` ne touche que les clés présentes dans le partial

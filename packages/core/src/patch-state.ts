@@ -1,5 +1,6 @@
 import type { Signal } from '@preact/signals-core';
 import { devFreeze } from './dev-freeze';
+import { getMeta } from './store-meta';
 
 type AnyStore = Record<string, Signal<unknown>>;
 
@@ -10,6 +11,14 @@ type StateOf<S extends AnyStore> = {
 type Update<State> = Partial<State> | ((current: State) => Partial<State>);
 
 export function patchState<S extends AnyStore>(store: S, ...updates: Update<StateOf<S>>[]): void {
+  const meta = getMeta(store);
+  if (meta !== undefined) {
+    for (const update of updates) {
+      meta.mutations$.next(update as never);
+    }
+    return;
+  }
+
   for (const update of updates) {
     const partial = typeof update === 'function' ? update(readState(store)) : update;
     for (const key in partial) {

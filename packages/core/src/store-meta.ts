@@ -1,4 +1,4 @@
-import type { Signal } from '@preact/signals-core';
+import { type Signal, signal } from '@preact/signals-core';
 import { Subject } from 'rxjs';
 import { scan } from 'rxjs/operators';
 import { devFreeze } from './dev-freeze';
@@ -59,9 +59,12 @@ export function getMeta(target: object): StoreMeta | undefined {
   return (target as MetaCarrier)[META];
 }
 
-export function registerStateSlot<T>(input: object, key: string, sig: Signal<T>, initial: T): void {
+export function registerState<T>(input: object, key: string, initial: T): Signal<T> {
+  const sig = signal(initial);
   const meta = getMeta(input);
-  if (meta === undefined) return;
-  meta.stateSignals[key] = sig as Signal<unknown>;
-  meta.rawState[key] = initial;
+  if (meta !== undefined) {
+    meta.stateSignals[key] = sig as Signal<unknown>;
+    meta.rawState[key] = initial;
+  }
+  return sig;
 }

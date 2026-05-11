@@ -1,6 +1,6 @@
 import { type Signal, signal } from '@preact/signals-core';
-import { Subject } from 'rxjs';
-import { scan } from 'rxjs/operators';
+import { BehaviorSubject, Subject, Subscription } from 'rxjs';
+import { distinctUntilChanged, map, scan } from 'rxjs/operators';
 import { devFreeze } from './dev-freeze';
 
 export const META = Symbol('signal-store.meta');
@@ -10,40 +10,47 @@ type RawState = Record<string, unknown>;
 export type Mutation = Partial<RawState> | ((current: RawState) => Partial<RawState>);
 
 export type StoreMeta = {
-  rawState: RawState;
-  stateSignals: Record<string, Signal<unknown>>;
+  state$: BehaviorSubject<RawState>;
   mutations$: Subject<Mutation>;
+  stateSignals: Record<string, Signal<unknown>>;
+  cleanup: Subscription;
+  destroy(): void;
 };
 
 type MetaCarrier = { [META]?: StoreMeta };
 
-export function attachMeta(target: object): StoreMeta {
-  const meta: StoreMeta = {
-    rawState: {},
-    stateSignals: {},
-    mutations$: new Subject<Mutation>(),
-  };
+function reducer(acc: RawState, mut: Mutation, registered: Record<string, unknown>): RawState {
+  const partial = typeof mut === 'function' ? mut(acc) : mut;
+  const next: RawState = { ...acc };
+  for (const key in partial) {
+    if (key in registered) next[key] = devFreeze(partial[key]);
+  }
+  return next;
+}
 
-  meta.mutations$
-    .pipe(
-      scan((acc, mut) => {
-        const partial = typeof mut === 'function' ? mut(acc) : mut;
-        const next: RawState = { ...acc };
-        for (const key in partial) {
-          if (key in meta.stateSignals) next[key] = devFreeze(partial[key]);
-        }
-        return next;
-      }, meta.rawState),
-    )
-    .subscribe((next) => {
-      for (const key in next) {
-        if (meta.rawState[key] !== next[key]) {
-          meta.rawState[key] = next[key];
-          const slot = meta.stateSignals[key];
-          if (slot !== undefined) slot.value = next[key];
-        }
-      }
-    });
+export function attachMeta(target: object): StoreMeta {
+  const mutations$ = new Subject<Mutation>();
+  const state$ = new BehaviorSubject<RawState>({});
+  const cleanup = new Subscription();
+  const stateSignals: Record<string, Signal<unknown>> = {};
+
+  cleanup.add(
+    mutations$
+      .pipe(scan((acc, mut) => reducer(acc, mut, stateSignals), {} as RawState))
+      .subscribe((next) => state$.next(next)),
+  );
+
+  const meta: StoreMeta = {
+    state$,
+    mutations$,
+    stateSignals,
+    cleanup,
+    destroy() {
+      cleanup.unsubscribe();
+      mutations$.complete();
+      state$.complete();
+    },
+  };
 
   Object.defineProperty(target, META, {
     value: meta,
@@ -64,7 +71,17 @@ export function registerState<T>(input: object, key: string, initial: T): Signal
   const meta = getMeta(input);
   if (meta !== undefined) {
     meta.stateSignals[key] = sig as Signal<unknown>;
-    meta.rawState[key] = initial;
+    meta.mutations$.next({ [key]: initial });
+    meta.cleanup.add(
+      meta.state$
+        .pipe(
+          map((s) => s[key] as T),
+          distinctUntilChanged(),
+        )
+        .subscribe((v) => {
+          sig.value = v;
+        }),
+    );
   }
   return sig;
 }

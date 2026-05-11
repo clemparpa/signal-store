@@ -1,3 +1,4 @@
+export { destroyStore } from './destroy-store';
 export { patchState } from './patch-state';
 export { signalStore } from './signal-store';
 export type { SignalStoreFeature } from './types';

@@ -3,9 +3,14 @@
   "compilerOptions": {
     "types": ["node"]
   },
-  "include": ["../../packages/core/src/**/*", "../../packages/entities/src/**/*"],
+  "include": [
+    "../../packages/core/src/**/*",
+    "../../packages/entities/src/**/*",
+    "../../packages/react/src/**/*"
+  ],
   "exclude": [
     "../../packages/*/src/**/*.test.ts",
+    "../../packages/*/src/**/*.test.tsx",
     "../../packages/*/src/**/*.test-d.ts",
     "../../packages/*/dist/**",
     "../../packages/*/node_modules/**"

@@ -1,0 +1,147 @@
+---
+title: React Provider
+description: Scope a signal-store instance to a React subtree with createStoreContext — get a typed Provider and useStore hook, lifecycle handled for you.
+---
+
+`@fluch/signal-store-react` is the **mode B** binding for signal-store. It scopes a store instance to a React subtree via a `<Provider>` + `useStore()` pair, as an alternative to the singleton-module pattern (mode A).
+
+Use it when you need:
+
+- multiple independent instances of the same store (per-route, per-feature, per-tenant);
+- a store seeded from React props, route params, or fetched data;
+- isolation between tests or storybook stories.
+
+## Install
+
+```sh
+pnpm add @fluch/signal-store @fluch/signal-store-react @preact/signals-react react
+```
+
+`@preact/signals-react` enables fine-grained re-renders when JSX reads `store.x.value` — set it up once in your app per the [Preact signals docs](https://preactjs.com/blog/signal-boosting/).
+
+## Quick start
+
+```tsx
+import { signalStore, withState, withMethods, patchState } from '@fluch/signal-store';
+import { createStoreContext } from '@fluch/signal-store-react';
+
+const { Provider, useStore } = createStoreContext(() =>
+  signalStore(
+    withState({ count: 0 }),
+    withMethods((s) => ({
+      increment: () => patchState(s, { count: s.count.value + 1 }),
+    })),
+  ),
+);
+
+function Counter() {
+  const store = useStore();
+  return (
+    <button onClick={store.increment}>
+      count: {store.count.value}
+    </button>
+  );
+}
+
+export function App() {
+  return (
+    <Provider>
+      <Counter />
+    </Provider>
+  );
+}
+```
+
+`useStore()` is **typed exactly** as the store the factory returns — no generic to pass, no annotation needed. Calling it outside its Provider throws a descriptive error.
+
+## Factory with props
+
+The factory can take props that the Provider forwards. Useful for seeding the store from React state or route params:
+
+```tsx
+type CounterProps = { initial: number };
+
+const { Provider, useStore } = createStoreContext(
+  (props: CounterProps) =>
+    signalStore(
+      withState({ count: props.initial }),
+      withMethods((s) => ({
+        increment: () => patchState(s, { count: s.count.value + 1 }),
+      })),
+    ),
+);
+
+<Provider initial={42}>
+  <Counter />
+</Provider>;
+```
+
+The Provider's props are typed against the factory's parameter — TypeScript will require `initial` when you use the Provider.
+
+## Props are read **once**, at mount
+
+The factory runs a single time per Provider mount. Changing a prop **does not** rebuild the store:
+
+```tsx
+// `userId` changes from "alice" to "bob" — store stays unchanged.
+<Provider userId={userId}>...</Provider>
+```
+
+If you need a fresh store when a prop changes, use React's `key` to force a remount:
+
+```tsx
+<Provider key={userId} userId={userId}>...</Provider>
+```
+
+When the Provider remounts, the old store is torn down (see [Lifecycle](#lifecycle)) and a new one is built with the new props.
+
+## Lifecycle
+
+The Provider manages the store's lifecycle for you:
+
+- **mount** → builds the store via the factory.
+- **unmount** → tears down the rxjs pipeline that drives the signals (no more mutations propagate; signals retain their last value).
+
+You never call `destroyStore` yourself.
+
+## Multiple stores
+
+Each `createStoreContext` call returns its own Context, so you can compose any number of stores in the same app without collision:
+
+```tsx
+const { Provider: AuthProvider, useStore: useAuthStore } =
+  createStoreContext(() => signalStore(withState({ user: null })));
+
+const { Provider: TodosProvider, useStore: useTodosStore } =
+  createStoreContext(() => signalStore(withState({ todos: [] })));
+
+<AuthProvider>
+  <TodosProvider>
+    <App />
+  </TodosProvider>
+</AuthProvider>;
+```
+
+## Mode A vs Mode B
+
+- **Mode A** (singleton) — `signalStore(...)` at module scope, imported wherever you need it. One instance per process. Zero React boilerplate.
+- **Mode B** (this package) — `createStoreContext(factory)` returning a Provider. One instance per Provider mount. Use when you need scoping, props, or lifecycle.
+
+The two modes coexist; pick per store, not per app.
+
+## FAQ
+
+**Where's `withHooks({ onInit, onDestroy })`?**
+Reserved for v2. For now, the Provider handles `destroy` automatically; init logic can live in the factory itself (it runs once at mount).
+
+**Does `useStore` accept a selector?**
+No — and on purpose. You read signals directly: `store.todos.value`, `store.user.value.name`. With `@preact/signals-react`, each read becomes a fine-grained subscription. Selectors and memoization aren't needed.
+
+**Is it SSR-safe?**
+The Provider uses `useState` lazy init, which is SSR-compatible in theory but **not yet tested**. SSR is on the v2 roadmap.
+
+## API
+
+- `createStoreContext(factory)` — returns `{ Provider, useStore }`.
+
+That's the entire surface.

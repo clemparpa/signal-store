@@ -28,7 +28,13 @@ function reducer(acc: RawState, mut: Mutation, registered: Record<string, unknow
   return next;
 }
 
-export function attachMeta(target: object): StoreMeta {
+export function createStoreInternals(): Record<string, unknown> {
+  const acc: Record<string, unknown> = {};
+  attachMeta(acc);
+  return acc;
+}
+
+function attachMeta(target: object): StoreMeta {
   const mutations$ = new Subject<Mutation>();
   const state$ = new BehaviorSubject<RawState>({});
   const cleanup = new Subscription();

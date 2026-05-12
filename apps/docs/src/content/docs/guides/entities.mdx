@@ -1,0 +1,169 @@
+---
+title: Entities
+description: Normalized entity collections with addEntity, updateEntity, removeEntity and friends — single or multi-collection, fully typed without manual annotations.
+---
+
+`@fluch/signal-store-entities` adds normalized collections (`ids` + `entityMap`) and a derived `entities` signal to your store, plus a set of NgRx-style updaters that compose with `patchState`.
+
+## Install
+
+```sh
+pnpm add @fluch/signal-store @fluch/signal-store-entities @preact/signals-core
+```
+
+## Set up a collection
+
+Create a config once with `entityConfig`, pass it to `withEntities`, and pass it to every updater. The config carries the collection name (a string literal type) and the `selectId` selector.
+
+```ts
+import { signalStore, withMethods, patchState } from '@fluch/signal-store';
+import {
+	entityConfig,
+	withEntities,
+	addEntity,
+	updateEntity,
+	removeEntity,
+} from '@fluch/signal-store-entities';
+
+type Todo = { id: string; title: string; done: boolean };
+
+const todosCfg = entityConfig<Todo>();
+
+export const todos = signalStore(
+	withEntities(todosCfg),
+	withMethods((s) => ({
+		add: (t: Todo) => patchState(s, addEntity(t, todosCfg)),
+		toggle: (id: string) =>
+			patchState(s, updateEntity({ id, changes: (t) => ({ done: !t.done }) }, todosCfg)),
+		remove: (id: string) => patchState(s, removeEntity(id, todosCfg)),
+	})),
+);
+```
+
+The store now exposes three signals:
+
+- `todos.ids` — `ReadonlySignal<(string | number)[]>`
+- `todos.entityMap` — `ReadonlySignal<Record<EntityId, Todo>>`
+- `todos.entities` — `ReadonlySignal<Todo[]>` (derived from the two above)
+
+## Multi-collection in one store
+
+Pass a `collection` name and the feature prefixes every signal with it.
+
+```ts
+type User = { uuid: string; name: string };
+
+const usersCfg = entityConfig<User, 'users'>({
+	collection: 'users',
+	selectId: (u) => u.uuid,
+});
+
+const store = signalStore(
+	withEntities(todosCfg),
+	withEntities(usersCfg),
+);
+
+store.ids.value;          // todos
+store.usersIds.value;     // users
+store.entities.value;     // todos
+store.usersEntities.value; // users
+```
+
+The prefix is a TypeScript template literal type, so editor autocompletion and `expectTypeOf` checks see the correct names with no manual annotation.
+
+## Updater cheat sheet
+
+All updaters take the entity (or id) plus the `entityConfig`. They return a state updater that you hand to `patchState`.
+
+### add — append, no-op on duplicates
+
+```ts
+patchState(s, addEntity(todo, todosCfg));
+patchState(s, addEntities([t1, t2, t3], todosCfg));
+```
+
+`addEntity` is a no-op if `selectId(e)` is already present. Use `setEntity` if you want upsert semantics.
+
+### set — upsert
+
+```ts
+patchState(s, setEntity(todo, todosCfg));         // upsert one
+patchState(s, setEntities([t1, t2], todosCfg));   // upsert many
+patchState(s, setAllEntities(loaded, todosCfg));  // replace the entire collection
+```
+
+### update — patch existing entities
+
+```ts
+patchState(s, updateEntity({ id, changes: { done: true } }, todosCfg));
+patchState(s, updateEntity({ id, changes: (t) => ({ done: !t.done }) }, todosCfg));
+patchState(s, updateEntities([
+	{ id: 'a', changes: { done: true } },
+	{ id: 'b', changes: { title: 'B!' } },
+], todosCfg));
+patchState(s, updateAllEntities({ done: true }, todosCfg));
+```
+
+`updateEntity` is a silent no-op when the id is unknown — no throw, no log.
+
+### remove
+
+```ts
+patchState(s, removeEntity(id, todosCfg));
+patchState(s, removeEntities(['a', 'b'], todosCfg));  // unknown ids are ignored
+patchState(s, removeAllEntities(todosCfg));
+```
+
+There is no predicate form on `removeEntities` — compute the id list upstream when you need to filter:
+
+```ts
+const doneIds = todos.entities.value.filter((t) => t.done).map((t) => t.id);
+patchState(todos, removeEntities(doneIds, todosCfg));
+```
+
+This keeps the updater signatures tight and the data flow explicit.
+
+## `add` vs `set` — the one subtle difference
+
+Both add an entity if its id is new. They diverge when the id already exists:
+
+- `addEntity` is a no-op (the existing entity stays as-is).
+- `setEntity` replaces the existing entity.
+
+If you don't know whether the id exists yet (e.g. loading from a server), use `setEntity` or `setEntities` — they are idempotent. Use `addEntity` to guarantee you never overwrite local state.
+
+## Filtering and sorting
+
+`@fluch/signal-store-entities` does not bake in `sortComparer`. Derive sorted or filtered views with `withComputed`:
+
+```ts
+import { computed } from '@preact/signals-core';
+import { withComputed } from '@fluch/signal-store';
+
+const todos = signalStore(
+	withEntities(todosCfg),
+	withComputed(({ entities }) => ({
+		pending: computed(() => entities.value.filter((t) => !t.done)),
+		byTitle: computed(() => [...entities.value].sort((a, b) => a.title.localeCompare(b.title))),
+	})),
+);
+```
+
+This keeps the entity feature minimal and the derivation cost explicit at the point of use.
+
+## Custom id selectors
+
+The default selector reads `entity.id`. Override it via the config:
+
+```ts
+const usersCfg = entityConfig<User, 'users'>({
+	collection: 'users',
+	selectId: (u) => u.uuid,
+});
+```
+
+The selector runs each time an updater needs to compute an id — never at read time.
+
+## API reference
+
+Auto-generated from the source: see [`@fluch/signal-store-entities` in the API reference](/signal-store/api/).

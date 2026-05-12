@@ -19,14 +19,18 @@ export default defineConfig({
       ],
       plugins: [
         starlightTypeDoc({
-          entryPoints: ['../../packages/core/src/index.ts', '../../packages/entities/src/index.ts'],
+          entryPoints: [
+            '../../packages/core/src/index.ts',
+            '../../packages/entities/src/index.ts',
+            '../../packages/react/src/index.ts',
+          ],
           tsconfig: './tsconfig.typedoc.json',
           output: 'api',
           typeDoc: {
             excludeInternal: true,
             excludePrivate: true,
             entryFileName: 'index',
-            exclude: ['**/*.test.ts', '**/*.test-d.ts'],
+            exclude: ['**/*.test.ts', '**/*.test.tsx', '**/*.test-d.ts'],
           },
         }),
       ],
@@ -40,7 +44,10 @@ export default defineConfig({
         },
         {
           label: 'Guides',
-          items: [{ label: 'Entities', slug: 'guides/entities' }],
+          items: [
+            { label: 'Entities', slug: 'guides/entities' },
+            { label: 'React Provider', slug: 'guides/react' },
+          ],
         },
         typeDocSidebarGroup,
       ],

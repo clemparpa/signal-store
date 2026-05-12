@@ -2,6 +2,7 @@ import { type Signal, signal } from '@preact/signals-core';
 import { BehaviorSubject, Subject, Subscription } from 'rxjs';
 import { distinctUntilChanged, map, scan } from 'rxjs/operators';
 import { devFreeze } from './dev-freeze';
+import type { StateSignals } from './types';
 
 export const META = Symbol('signal-store.meta');
 
@@ -14,6 +15,7 @@ export type StoreMeta = {
   mutations$: Subject<Mutation>;
   stateSignals: Record<string, Signal<unknown>>;
   cleanup: Subscription;
+  declareState<S extends RawState>(initial: S): StateSignals<S>;
   destroy(): void;
 };
 
@@ -51,6 +53,26 @@ function attachMeta(target: object): StoreMeta {
     mutations$,
     stateSignals,
     cleanup,
+    declareState<S extends RawState>(initial: S): StateSignals<S> {
+      const out = {} as { [K in keyof S]: Signal<S[K]> };
+      for (const key in initial) {
+        const sig = signal(devFreeze(initial[key]));
+        stateSignals[key] = sig as Signal<unknown>;
+        mutations$.next({ [key]: initial[key] });
+        cleanup.add(
+          state$
+            .pipe(
+              map((s) => s[key] as S[typeof key]),
+              distinctUntilChanged(),
+            )
+            .subscribe((v) => {
+              sig.value = v;
+            }),
+        );
+        out[key] = sig;
+      }
+      return out as StateSignals<S>;
+    },
     destroy() {
       cleanup.unsubscribe();
       mutations$.complete();
@@ -70,24 +92,4 @@ function attachMeta(target: object): StoreMeta {
 
 export function getMeta(target: object): StoreMeta | undefined {
   return (target as MetaCarrier)[META];
-}
-
-export function registerState<T>(input: object, key: string, initial: T): Signal<T> {
-  const sig = signal(initial);
-  const meta = getMeta(input);
-  if (meta !== undefined) {
-    meta.stateSignals[key] = sig as Signal<unknown>;
-    meta.mutations$.next({ [key]: initial });
-    meta.cleanup.add(
-      meta.state$
-        .pipe(
-          map((s) => s[key] as T),
-          distinctUntilChanged(),
-        )
-        .subscribe((v) => {
-          sig.value = v;
-        }),
-    );
-  }
-  return sig;
 }

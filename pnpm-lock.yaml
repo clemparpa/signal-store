@@ -75,6 +75,7 @@ importers:
       '@fluch/signal-store':
         specifier: workspace:*
         version: link:../core
+    devDependencies:
       '@preact/signals-core':
         specifier: ^1.8.0
         version: 1.14.1

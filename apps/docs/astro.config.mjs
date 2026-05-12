@@ -19,13 +19,14 @@ export default defineConfig({
       ],
       plugins: [
         starlightTypeDoc({
-          entryPoints: ['../../packages/core/src/index.ts'],
-          tsconfig: '../../packages/core/tsconfig.json',
+          entryPoints: ['../../packages/core/src/index.ts', '../../packages/entities/src/index.ts'],
+          tsconfig: './tsconfig.typedoc.json',
           output: 'api',
           typeDoc: {
             excludeInternal: true,
             excludePrivate: true,
             entryFileName: 'index',
+            exclude: ['**/*.test.ts', '**/*.test-d.ts'],
           },
         }),
       ],
@@ -36,6 +37,10 @@ export default defineConfig({
             { label: 'Installation', slug: 'getting-started/installation' },
             { label: 'Your first store', slug: 'getting-started/first-store' },
           ],
+        },
+        {
+          label: 'Guides',
+          items: [{ label: 'Entities', slug: 'guides/entities' }],
         },
         typeDocSidebarGroup,
       ],

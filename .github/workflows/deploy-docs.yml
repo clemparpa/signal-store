@@ -34,6 +34,11 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Build the publishable packages first so that starlight-typedoc can
+      # resolve cross-package imports (e.g. entities → @fluch/signal-store)
+      # via each package's dist/index.d.ts.
+      - run: pnpm --filter './packages/*' run build
+
       - run: pnpm --filter @fluch/docs build
 
       - uses: actions/configure-pages@v6

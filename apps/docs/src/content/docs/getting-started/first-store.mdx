@@ -57,4 +57,16 @@ counter.isPositive.value; // true
 
 In React (with `@preact/signals-react` installed in the app), reading `counter.count.value` inside a component subscribes that component to changes — no `useState`, no selector, no memoization needed. A call to `counter.increment()` re-renders only the components that read `count` or any computed derived from it.
 
+## Cleanup
+
+Stores set up internal subscriptions. When a store is no longer needed (e.g. it was scoped to a component lifecycle), call `destroyStore` to release them:
+
+```ts
+import { destroyStore } from '@fluch/signal-store';
+
+destroyStore(counter);
+```
+
+`destroyStore` is idempotent and safe to call multiple times. After it runs, further `patchState` calls on that store are silently dropped.
+
 For the full API surface, see the [API Reference](/api/).

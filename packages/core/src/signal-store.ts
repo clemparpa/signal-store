@@ -1,3 +1,4 @@
+import { createStoreInternals } from './store-meta';
 import type { EmptySlot, SignalStoreFeature } from './types';
 
 export function signalStore(): EmptySlot;
@@ -134,7 +135,7 @@ export function signalStore<
   >,
 ): Out1 & Out2 & Out3 & Out4 & Out5 & Out6 & Out7 & Out8 & Out9 & Out10;
 export function signalStore(...features: SignalStoreFeature[]): unknown {
-  const acc: Record<string, unknown> = {};
+  const acc = createStoreInternals();
   for (const feature of features) {
     const out = feature(acc) as Record<string, unknown>;
     for (const key in out) {

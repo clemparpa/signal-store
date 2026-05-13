@@ -1,6 +1,21 @@
 import { idsKey, mapKey } from '../internal/keys';
 import type { CollectionSlice, CollectionUpdater, EntityConfig, EntityId } from '../types';
 
+/**
+ * Build an updater that inserts or replaces a single entity.
+ *
+ * Unlike {@link addEntity}, this overwrites an existing entry with the same
+ * id. The id keeps its original position in `ids` when updated, and is
+ * appended when newly inserted.
+ *
+ * @example
+ * ```ts
+ * import { patchState } from '@fluch/signal-store';
+ * import { setEntity } from '@fluch/signal-store-entities';
+ *
+ * patchState(store, setEntity({ id: '1', title: 'milk (updated)' }, todosCfg));
+ * ```
+ */
 export function setEntity<E, C extends string>(
   entity: E,
   cfg: EntityConfig<E, C>,
@@ -20,6 +35,23 @@ export function setEntity<E, C extends string>(
   };
 }
 
+/**
+ * Build an updater that inserts or replaces many entities in one shot.
+ *
+ * Existing ids are overwritten in place; new ids are appended at the end.
+ * Empty input → no-op.
+ *
+ * @example
+ * ```ts
+ * import { patchState } from '@fluch/signal-store';
+ * import { setEntities } from '@fluch/signal-store-entities';
+ *
+ * patchState(store, setEntities([
+ *   { id: '1', title: 'milk' },
+ *   { id: '2', title: 'bread' },
+ * ], todosCfg));
+ * ```
+ */
 export function setEntities<E, C extends string>(
   entities: readonly E[],
   cfg: EntityConfig<E, C>,
@@ -45,6 +77,20 @@ export function setEntities<E, C extends string>(
   };
 }
 
+/**
+ * Build an updater that replaces the entire collection with the given list.
+ *
+ * Any existing entity not in `entities` is dropped. Useful for refreshing a
+ * collection from a server payload.
+ *
+ * @example
+ * ```ts
+ * import { patchState } from '@fluch/signal-store';
+ * import { setAllEntities } from '@fluch/signal-store-entities';
+ *
+ * patchState(store, setAllEntities(serverTodos, todosCfg));
+ * ```
+ */
 export function setAllEntities<E, C extends string>(
   entities: readonly E[],
   cfg: EntityConfig<E, C>,

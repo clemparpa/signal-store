@@ -3,6 +3,13 @@ import { computed, type ReadonlySignal } from '@preact/signals-core';
 import { entitiesKey, idsKey, mapKey } from './internal/keys';
 import type { EntitiesKey, EntityConfig, EntityId, IdsKey, MapKey } from './types';
 
+/**
+ * Shape of the keys {@link withEntities} contributes to the store.
+ *
+ * For an `''` collection it expands to `{ ids, entityMap, entities }`; for a
+ * `'todos'` collection it expands to
+ * `{ todosIds, todosEntityMap, todosEntities }`.
+ */
 export type EntityFeatureOutput<E, C extends string> = {
   [K in IdsKey<C>]: ReadonlySignal<EntityId[]>;
 } & {
@@ -14,6 +21,35 @@ export type EntityFeatureOutput<E, C extends string> = {
 // biome-ignore lint/complexity/noBannedTypes: identity element for feature composition (matches core's EmptySlot)
 type EmptySlot = {};
 
+/**
+ * Add a normalized collection of entities to a store.
+ *
+ * Exposes three signals derived from the config's `collection` prefix:
+ * - `<prefix>Ids` — ordered list of entity ids,
+ * - `<prefix>EntityMap` — `id → entity` map,
+ * - `<prefix>Entities` — computed array `ids.map(id => map[id])` (insertion order).
+ *
+ * Mutate the collection via the updater functions (`addEntity`,
+ * `removeEntity`, etc.) passed to {@link patchState}. Compose multiple
+ * `withEntities` calls in the same store to manage several collections at
+ * once — use distinct `collection` prefixes to avoid key collisions.
+ *
+ * @param config — typed config built with {@link entityConfig}.
+ * @example
+ * ```ts
+ * import { signalStore } from '@fluch/signal-store';
+ * import { entityConfig, withEntities } from '@fluch/signal-store-entities';
+ *
+ * type Todo = { id: string; title: string };
+ *
+ * const todosCfg = entityConfig<Todo>({ collection: 'todos' });
+ * const store = signalStore(withEntities(todosCfg));
+ *
+ * store.todosIds.value;      // []
+ * store.todosEntityMap.value; // {}
+ * store.todosEntities.value;  // []
+ * ```
+ */
 export function withEntities<E, C extends string = ''>(
   config: EntityConfig<E, C>,
 ): SignalStoreFeature<EmptySlot, EntityFeatureOutput<E, C>> {

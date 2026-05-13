@@ -1,6 +1,41 @@
 import { createStoreInternals } from './store-meta';
 import type { EmptySlot, SignalStoreFeature } from './types';
 
+/**
+ * Build a signal-store by composing features left-to-right.
+ *
+ * Each feature receives the accumulated store shape and returns the keys it
+ * contributes. The output type is the intersection of every feature's output,
+ * so members from `withState`, `withComputed`, and `withMethods` all show up
+ * on the same returned object — fully typed, no annotation needed.
+ *
+ * Features are run in order: a later feature can read from anything declared
+ * by an earlier one. Declaring the same key twice across features throws at
+ * construction time.
+ *
+ * @param features — composable features (e.g. `withState`, `withComputed`,
+ *   `withMethods`); accepts up to 10 positional features with full inference.
+ * @returns the composed store object with one property per declared key.
+ * @example
+ * ```ts
+ * import { signalStore, withState, withComputed, withMethods, patchState } from '@fluch/signal-store';
+ * import { computed } from '@preact/signals-core';
+ *
+ * const counter = signalStore(
+ *   withState({ count: 0 }),
+ *   withComputed(({ count }) => ({
+ *     double: computed(() => count.value * 2),
+ *   })),
+ *   withMethods((s) => ({
+ *     increment: () => patchState(s, { count: s.count.value + 1 }),
+ *   })),
+ * );
+ *
+ * counter.increment();
+ * counter.count.value;  // 1
+ * counter.double.value; // 2
+ * ```
+ */
 export function signalStore(): EmptySlot;
 export function signalStore<Out1 extends object>(f1: SignalStoreFeature<EmptySlot, Out1>): Out1;
 export function signalStore<Out1 extends object, Out2 extends object>(

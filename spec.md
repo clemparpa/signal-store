@@ -596,18 +596,18 @@ V1 : URL GitHub Pages par défaut (`clemparpa.github.io/signal-store` ou équiva
 
 ## 11. Checklist de livraison v1
 
-- [ ] Repo monorepo pnpm initialisé, workspaces configurés
-- [ ] `@fluch/signal-store` (core) : signalStore, withState, withComputed, withMethods, patchState
-- [ ] `@fluch/signal-store-entities` : withEntities (mono + multi), tous les updaters listés en 4.6
-- [ ] `@fluch/signal-store-react` : Provider + useStore (mode B)
-- [ ] Types parfaitement inférés sans annotation manuelle
-- [ ] Tests vitest >90% coverage sur core + entities
-- [ ] Build tsup ESM+CJS+dts, treeshakeable
-- [ ] README dans chaque package avec exemple minimal
-- [ ] `.changeset/` configuré pour publication
-- [ ] CI GitHub Actions : lint + typecheck + test + build + audit
-- [ ] Dependabot actif (npm + github-actions, weekly, grouped)
-- [ ] Audit CI bloquant high + critical, alerte moderate
-- [ ] Auto-merge Dependabot configuré (patch toutes deps, minor dev-deps)
-- [ ] Site doc Starlight déployé sur GitHub Pages (intro packages + API ref TypeDoc)
-- [ ] Bundle size cible : core <3kb gzip, entities <2kb gzip
+- [x] Repo monorepo pnpm initialisé, workspaces configurés
+- [x] `@fluch/signal-store` (core) : signalStore, withState, withComputed, withMethods, patchState
+- [x] `@fluch/signal-store-entities` : withEntities (mono + multi), tous les updaters listés en 4.6
+- [x] `@fluch/signal-store-react` : Provider + useStore (mode B)
+- [x] Types parfaitement inférés sans annotation manuelle
+- [x] Tests vitest >90% coverage sur core + entities
+- [x] Build tsup ESM+CJS+dts, treeshakeable
+- [x] README dans chaque package avec exemple minimal
+- [x] `.changeset/` configuré pour publication
+- [x] CI GitHub Actions : lint + typecheck + test + build + audit
+- [x] Dependabot actif (npm + github-actions, weekly, grouped)
+- [x] Audit CI bloquant high + critical, alerte moderate
+- [x] Auto-merge Dependabot configuré (patch toutes deps, minor dev-deps)
+- [x] Site doc Starlight déployé sur GitHub Pages (intro packages + API ref TypeDoc)
+- [x] Bundle size cible : core <3kb gzip, entities <2kb gzip (mesuré : core 1.3kb, entities 1.3kb)

@@ -1,6 +1,19 @@
 import { idsKey, mapKey } from '../internal/keys';
 import type { CollectionSlice, CollectionUpdater, EntityConfig, EntityId } from '../types';
 
+/**
+ * Build an updater that removes a single entity by id.
+ *
+ * If the id is not present, the update is a no-op.
+ *
+ * @example
+ * ```ts
+ * import { patchState } from '@fluch/signal-store';
+ * import { removeEntity } from '@fluch/signal-store-entities';
+ *
+ * patchState(store, removeEntity('1', todosCfg));
+ * ```
+ */
 export function removeEntity<E, C extends string>(
   id: EntityId,
   cfg: EntityConfig<E, C>,
@@ -23,6 +36,19 @@ export function removeEntity<E, C extends string>(
   };
 }
 
+/**
+ * Build an updater that removes many entities by id in one shot.
+ *
+ * Ids absent from the collection are ignored. Empty input → no-op.
+ *
+ * @example
+ * ```ts
+ * import { patchState } from '@fluch/signal-store';
+ * import { removeEntities } from '@fluch/signal-store-entities';
+ *
+ * patchState(store, removeEntities(['1', '2'], todosCfg));
+ * ```
+ */
 export function removeEntities<E, C extends string>(
   ids: readonly EntityId[],
   cfg: EntityConfig<E, C>,
@@ -53,6 +79,19 @@ export function removeEntities<E, C extends string>(
   };
 }
 
+/**
+ * Build an updater that empties the collection.
+ *
+ * Both the id list and the map are reset to their empty values.
+ *
+ * @example
+ * ```ts
+ * import { patchState } from '@fluch/signal-store';
+ * import { removeAllEntities } from '@fluch/signal-store-entities';
+ *
+ * patchState(store, removeAllEntities(todosCfg));
+ * ```
+ */
 export function removeAllEntities<E, C extends string>(
   cfg: EntityConfig<E, C>,
 ): CollectionUpdater<E, C> {

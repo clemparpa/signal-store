@@ -12,6 +12,28 @@ function applyChanges<E>(entity: E, changes: EntityChanges<E>): E {
   return { ...entity, ...patch };
 }
 
+/**
+ * Build an updater that shallow-merges changes into a single entity.
+ *
+ * `changes` is either a partial object or a function `(entity) => partial`.
+ * If the id isn't in the collection, the update is a no-op (entities are
+ * never created here — use {@link setEntity} for upsert semantics).
+ *
+ * @example
+ * ```ts
+ * import { patchState } from '@fluch/signal-store';
+ * import { updateEntity } from '@fluch/signal-store-entities';
+ *
+ * // Partial-object form
+ * patchState(store, updateEntity({ id: '1', changes: { done: true } }, todosCfg));
+ *
+ * // Updater-function form
+ * patchState(store, updateEntity(
+ *   { id: '1', changes: (t) => ({ done: !t.done }) },
+ *   todosCfg,
+ * ));
+ * ```
+ */
 export function updateEntity<E, C extends string>(
   update: { id: EntityId; changes: EntityChanges<E> },
   cfg: EntityConfig<E, C>,
@@ -28,6 +50,23 @@ export function updateEntity<E, C extends string>(
   };
 }
 
+/**
+ * Build an updater that shallow-merges changes into many entities at once.
+ *
+ * Each entry targets one id; missing ids are skipped silently. Empty input
+ * and "no entry actually changed" are both no-ops.
+ *
+ * @example
+ * ```ts
+ * import { patchState } from '@fluch/signal-store';
+ * import { updateEntities } from '@fluch/signal-store-entities';
+ *
+ * patchState(store, updateEntities([
+ *   { id: '1', changes: { done: true } },
+ *   { id: '2', changes: { done: true } },
+ * ], todosCfg));
+ * ```
+ */
 export function updateEntities<E, C extends string>(
   updates: ReadonlyArray<{ id: EntityId; changes: EntityChanges<E> }>,
   cfg: EntityConfig<E, C>,
@@ -50,6 +89,22 @@ export function updateEntities<E, C extends string>(
   };
 }
 
+/**
+ * Build an updater that applies the same change to every entity in the
+ * collection.
+ *
+ * `changes` is either a partial object or a function `(entity) => partial`.
+ * Empty collection → no-op.
+ *
+ * @example
+ * ```ts
+ * import { patchState } from '@fluch/signal-store';
+ * import { updateAllEntities } from '@fluch/signal-store-entities';
+ *
+ * // Mark every todo as done
+ * patchState(store, updateAllEntities({ done: true }, todosCfg));
+ * ```
+ */
 export function updateAllEntities<E, C extends string>(
   changes: EntityChanges<E>,
   cfg: EntityConfig<E, C>,

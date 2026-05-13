@@ -1,6 +1,21 @@
 import { idsKey, mapKey } from '../internal/keys';
 import type { CollectionSlice, CollectionUpdater, EntityConfig, EntityId } from '../types';
 
+/**
+ * Build an updater that appends a single entity to the collection.
+ *
+ * If an entity with the same id already exists, the update is a no-op
+ * (existing entities are preserved — use {@link setEntity} to overwrite).
+ * Pass the returned updater to {@link patchState}.
+ *
+ * @example
+ * ```ts
+ * import { patchState } from '@fluch/signal-store';
+ * import { addEntity } from '@fluch/signal-store-entities';
+ *
+ * patchState(store, addEntity({ id: '1', title: 'milk' }, todosCfg));
+ * ```
+ */
 export function addEntity<E, C extends string>(
   entity: E,
   cfg: EntityConfig<E, C>,
@@ -20,6 +35,23 @@ export function addEntity<E, C extends string>(
   };
 }
 
+/**
+ * Build an updater that appends many entities to the collection in one shot.
+ *
+ * Entities whose id is already present are skipped silently. Ordering of the
+ * `ids` array reflects insertion order. Empty input → no-op.
+ *
+ * @example
+ * ```ts
+ * import { patchState } from '@fluch/signal-store';
+ * import { addEntities } from '@fluch/signal-store-entities';
+ *
+ * patchState(store, addEntities([
+ *   { id: '1', title: 'milk' },
+ *   { id: '2', title: 'bread' },
+ * ], todosCfg));
+ * ```
+ */
 export function addEntities<E, C extends string>(
   entities: readonly E[],
   cfg: EntityConfig<E, C>,

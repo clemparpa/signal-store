@@ -1,6 +1,6 @@
 {
   "name": "@fluch/signal-store-react",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "React Provider/useStore bindings for @fluch/signal-store (option B: scoped instances)",
   "license": "MIT",
   "type": "module",

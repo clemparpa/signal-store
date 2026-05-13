@@ -1,5 +1,11 @@
 # @fluch/signal-store
 
+## 0.3.1
+
+### Patch Changes
+
+- 0f1ab46: Add TSDoc docstrings with usage examples to every public export. Improves IntelliSense in editors and enriches the TypeDoc-generated API pages on the docs site. No runtime change.
+
 ## 0.3.0
 
 ### Minor Changes

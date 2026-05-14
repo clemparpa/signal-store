@@ -1,4 +1,4 @@
-import { createStoreInternals } from './store-meta';
+import { createStoreInternals, getMeta } from './store-meta';
 import type { EmptySlot, SignalStoreFeature } from './types';
 
 /**
@@ -180,6 +180,12 @@ export function signalStore(...features: SignalStoreFeature[]): unknown {
         );
       }
       acc[key] = out[key];
+    }
+  }
+  const meta = getMeta(acc);
+  if (meta !== undefined) {
+    for (const hook of meta.initHooks) {
+      hook(acc);
     }
   }
   return acc;

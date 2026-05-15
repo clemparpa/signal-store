@@ -1,5 +1,12 @@
 # @fluch/signal-store-entities
 
+## 0.1.2
+
+### Patch Changes
+
+- Updated dependencies [d8b5c7d]
+  - @fluch/signal-store@0.4.0
+
 ## 0.1.1
 
 ### Patch Changes

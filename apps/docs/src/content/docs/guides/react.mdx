@@ -131,8 +131,8 @@ The two modes coexist; pick per store, not per app.
 
 ## FAQ
 
-**Where's `withHooks({ onInit, onDestroy })`?**
-Reserved for v2. For now, the Provider handles `destroy` automatically; init logic can live in the factory itself (it runs once at mount).
+**How does `withHooks` interact with the Provider?**
+`onInit` fires when the factory returns the composed store (during mount). `onDestroy` fires automatically when the Provider unmounts — you still don't call `destroyStore` yourself. See [Lifecycle hooks](/signal-store/getting-started/first-store/#lifecycle-hooks) in *Your first store*.
 
 **Does `useStore` accept a selector?**
 No — and on purpose. You read signals directly: `store.todos.value`, `store.user.value.name`. With `@preact/signals-react`, each read becomes a fine-grained subscription. Selectors and memoization aren't needed.

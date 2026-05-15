@@ -8,3 +8,10 @@ allowBuilds:
   '@biomejs/biome': true
   esbuild: true
   sharp: true
+
+# Pin transitive deps to patched versions for known CVEs.
+# Remove an entry once upstream declares a strict-enough range.
+overrides:
+  # GHSA-77vg-94rm-hx3p — DoS via sparse array deserialization in devalue 5.6.3..5.8.0.
+  # Pulled in transitively via astro (range ^5.6.3); 5.8.1 is the patched version.
+  devalue: '>=5.8.1'

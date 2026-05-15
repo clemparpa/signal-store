@@ -57,6 +57,49 @@ counter.isPositive.value; // true
 
 In React (with `@preact/signals-react` installed in the app), reading `counter.count.value` inside a component subscribes that component to changes — no `useState`, no selector, no memoization needed. A call to `counter.increment()` re-renders only the components that read `count` or any computed derived from it.
 
+## Lifecycle hooks
+
+To run code at store construction or teardown, compose `withHooks({ onInit, onDestroy })`:
+
+```ts
+import { signalStore, withState, withHooks, patchState } from '@fluch/signal-store';
+
+const counter = signalStore(
+	withState({ count: 0 }),
+	withHooks({
+		onInit(s) {
+			// runs once, after every feature is composed
+			patchState(s, { count: 1 });
+		},
+		onDestroy(s) {
+			console.log('final count:', s.count.value);
+		},
+	}),
+);
+
+counter.count.value; // 1
+```
+
+- **`onInit`** fires synchronously after `signalStore(...)` finishes composing every feature. It can read every signal/computed and call `patchState` — useful for seeding the store from a one-time source.
+- **`onDestroy`** fires when `destroyStore(store)` runs (also automatically when a React `<Provider>` unmounts). The store is still **live** at that point: `patchState` propagates, signals are readable.
+
+Multiple `withHooks(...)` compose: `onInit` callbacks run in composition order, `onDestroy` in reverse (LIFO).
+
+Hooks are synchronous. For fire-and-forget async work, wrap in an explicit IIFE so the intent is visible:
+
+```ts
+withHooks({
+	onInit(s) {
+		void (async () => {
+			const data = await fetchInitial();
+			patchState(s, { data });
+		})();
+	},
+});
+```
+
+For cancellable async pipelines (debounce, switchMap, takeUntilDestroy), `rxMethod` is the right tool — coming in v2.
+
 ## Cleanup
 
 Stores set up internal subscriptions. When a store is no longer needed (e.g. it was scoped to a component lifecycle), call `destroyStore` to release them:

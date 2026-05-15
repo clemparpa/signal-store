@@ -22,5 +22,10 @@ import { getMeta } from './store-meta';
  */
 export function destroyStore(store: object): void {
   const meta = getMeta(store);
-  if (meta !== undefined) meta.destroy();
+  if (meta === undefined) return;
+  if (meta.cleanup.closed) return;
+  for (const hook of [...meta.destroyHooks].reverse()) {
+    hook(store);
+  }
+  meta.destroy();
 }

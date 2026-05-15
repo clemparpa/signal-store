@@ -10,11 +10,15 @@ type RawState = Record<string, unknown>;
 
 export type Mutation = Partial<RawState> | ((current: RawState) => Partial<RawState>);
 
+export type StoreHook = (store: object) => void;
+
 export type StoreMeta = {
   state$: BehaviorSubject<RawState>;
   mutations$: Subject<Mutation>;
   stateSignals: Record<string, Signal<unknown>>;
   cleanup: Subscription;
+  initHooks: StoreHook[];
+  destroyHooks: StoreHook[];
   declareState<S extends RawState>(initial: S): StateSignals<S>;
   destroy(): void;
 };
@@ -53,6 +57,8 @@ function attachMeta(target: object): StoreMeta {
     mutations$,
     stateSignals,
     cleanup,
+    initHooks: [],
+    destroyHooks: [],
     declareState<S extends RawState>(initial: S): StateSignals<S> {
       const out = {} as { [K in keyof S]: Signal<S[K]> };
       for (const key in initial) {

@@ -4,9 +4,9 @@
 
 Lib React de state management inspirée de **NgRx SignalStore** (la feature `@ngrx/signals`, pas le Store classique avec actions/reducers/effects). API déclarative composable, réactivité fine-grained par signal, branchée sur `@preact/signals-react` côté consommateur React.
 
-**Public visé** : devs qui veulent une API structurée et typée à la NgRx, mais en React. Compatibilité naturelle avec RxJS prévue (v2 via `rxMethod`).
+**Public visé** : devs qui veulent une API structurée et typée à la NgRx, mais en React. Moteur interne basé sur **rxjs** (pipeline `mutations$` → reducer → `state$` → facade signaux, cf. §5.5) ; interop publique RxJS via `rxMethod` reportée en v2.
 
-**Non-goals v1** : compat avec NgRx classique (Store/Effects/Actions), DevTools, lifecycle hooks, sort comparator d'entities, integration RxJS.
+**Non-goals v1** : compat avec NgRx classique (Store/Effects/Actions), DevTools, lifecycle hooks (`withHooks`), `rxMethod` (pipeline RxJS public), sort comparator d'entities.
 
 ## 2. Décisions de design lockées
 
@@ -20,8 +20,9 @@ Lib React de state management inspirée de **NgRx SignalStore** (la feature `@ng
 | Instanciation alternative | Provider/Context (option B) dans package séparé | Pour scoping par sous-arbre |
 | Entities | Multi-collection dès v1, ID selector custom, **pas de sort** | Sort se fait via `withComputed` |
 | Immutabilité | `Object.freeze` en dev sur l'état | Catch les mutations directes |
-| Méthodes v1 | Synchrones uniquement | Async/RxJS reportés en v2 (`rxMethod`) |
-| Architecture | Monorepo pnpm, packages séparés | Bundle size + extensibilité |
+| Méthodes v1 | Synchrone recommandé ; les méthodes async marchent mais non gérées | Le store ne tracke pas la `Promise`, ne cancel rien — `rxMethod` v2 pour pipelines gérés |
+| Architecture interne | Source brute via rxjs `BehaviorSubject` + facade signaux (cf. §5.5) | Permet devtools/persistence/time-travel/hooks v2 sans casser l'API publique |
+| Architecture monorepo | Monorepo pnpm, packages séparés | Bundle size + extensibilité |
 
 ## 3. Architecture monorepo
 
@@ -36,7 +37,7 @@ Lib React de state management inspirée de **NgRx SignalStore** (la feature `@ng
 │   └── docs/                          → site Starlight (privé, non publié)
 └── packages/
     ├── core/                          → @fluch/signal-store
-    │   peer: @preact/signals-core
+    │   peer: @preact/signals-core, rxjs
     ├── entities/                      → @fluch/signal-store-entities
     │   deps: @fluch/signal-store
     │   peer: @preact/signals-core
@@ -59,16 +60,25 @@ Packages prévus pour v2 (à ne PAS implémenter maintenant) :
 
 ### 4.1. `signalStore(...features)`
 
-Compose des features et retourne un **objet store singleton**. Chaque feature est une fonction qui transforme une description de store accumulée.
+Compose des features et retourne un **objet store**. Chaque feature reçoit l'accumulateur (les clés déjà déclarées) et retourne les clés qu'elle ajoute. La signature publique est typée via **10 overloads positionnels** qui accumulent les outputs en intersection — cf. [packages/core/src/signal-store.ts](packages/core/src/signal-store.ts) et §5.2 :
 
 ```ts
-function signalStore<T extends StoreShape>(
-  ...features: SignalStoreFeature[]
-): T;
+function signalStore(): {};
+function signalStore<Out1 extends object>(
+  f1: SignalStoreFeature<{}, Out1>,
+): Out1;
+function signalStore<Out1 extends object, Out2 extends object>(
+  f1: SignalStoreFeature<{}, Out1>,
+  f2: SignalStoreFeature<{} & Out1, Out2>,
+): Out1 & Out2;
+// ... jusqu'à 10 features.
 ```
 
+**Plafond : 10 features par appel** avec inférence parfaite (la 11e fait perdre les types accumulés). Au-delà : factoriser en sub-features composées qui retournent elles-mêmes un `SignalStoreFeature`.
+
 Le résultat est un objet plat où cohabitent :
-- Signaux d'état (writable internes, exposés en lecture)
+
+- Signaux d'état (writable en interne via le pipeline rxjs §5.5, exposés en lecture seule au consommateur)
 - Signaux computed (readonly)
 - Méthodes (fonctions)
 
@@ -128,7 +138,7 @@ withMethods((store) => ({
 }))
 ```
 
-**v1 = sync only.** Si une méthode retourne une `Promise`, on ne la cancel pas, on ne la track pas — c'est au consommateur de gérer (en attendant `rxMethod` en v2).
+**v1 — synchrone recommandé.** Les méthodes async (qui retournent une `Promise`) marchent fonctionnellement, mais le store ne tracke pas la `Promise`, ne cancel rien à l'unmount, et n'expose pas de loading state. C'est au consommateur de gérer — ou d'attendre `rxMethod` en v2 (pipelines RxJS managés avec cancel, lifecycle, et interop signal↔observable, cf. §10).
 
 ### 4.5. `patchState(store, partial | updater)`
 
@@ -146,10 +156,11 @@ function patchState<S>(
 ```
 
 - Accepte un objet partiel ou une fonction `current → partial`
-- Accepte plusieurs updates en arguments variadiques (composables, ex: entities)
-- Pour chaque clé du partial résultant, set `store[key].value = newValue`
-- En dev : freeze profond du nouveau partial avant assignation
-- N'écrit que les clés présentes dans le partial (les autres signaux ne sont pas touchés → pas de re-render parasite)
+- Accepte plusieurs updates en arguments variadiques (composables, ex: entities) — chaque update est poussé séquentiellement dans `mutations$`
+- Chaque update est pushé dans `mutations$`, un reducer rxjs (`scan`) l'applique sur le state brut (`state$: BehaviorSubject<RawState>`), puis les signaux facade se synchronisent via `distinctUntilChanged` (cf. §5.5)
+- En dev : freeze profond du nouveau partial avant assignation au state brut
+- N'écrit que les clés présentes dans le partial **et** déclarées via `withState`/`withEntities` (les autres signaux ne sont pas touchés → pas de re-render parasite ; les clés inconnues sont ignorées silencieusement par le reducer)
+- **Après `destroyStore`** : les appels suivants sont silencieusement ignorés (pas de throw ; le `Subject mutations$` est complété, plus rien ne se propage)
 
 ```ts
 patchState(store, { count: 5 });
@@ -159,68 +170,156 @@ patchState(store, addEntity(todo), { filter: 'all' });  // multi-update
 
 ### 4.6. `withEntities` (package `@fluch/signal-store-entities`)
 
-#### Cas mono-collection (default)
+L'API entities repose sur un **builder typé** `entityConfig()` capturé en closure par le consommateur, puis passé explicitement à la feature et à chaque updater. Pas de registre interne au store : la config voyage par argument, et le préfixe `collection` (string literal) sert à dériver les clés au type-level.
+
+#### `entityConfig<E, C extends string = ''>(opts?)`
 
 ```ts
-function withEntities<E>(config?: {
-  selectId?: (entity: E) => string | number;  // default: e => e.id
-}): SignalStoreFeature;
+function entityConfig<E, C extends string = ''>(opts?: {
+  collection?: C;                                 // default: ''
+  selectId?: (entity: E) => string | number;      // default: e => e.id
+}): EntityConfig<E, C>;
 ```
 
-Ajoute au state :
-- `ids: Signal<(string|number)[]>` — ordre d'insertion (sauf override par updater)
-- `entityMap: Signal<Record<string|number, E>>` — lookup O(1)
+À capturer dans une `const` top-level — c'est cette closure que les updaters et `withEntities` reçoivent.
 
-Et au computed :
-- `entities: ReadonlySignal<E[]>` — dérivé de `ids` + `entityMap`
-
-#### Cas multi-collection
+#### `withEntities(cfg)`
 
 ```ts
-function withEntities<E>(config: {
-  collection: string;          // ex: 'users'
-  selectId?: (entity: E) => string | number;
-}): SignalStoreFeature;
+function withEntities<E, C extends string>(
+  cfg: EntityConfig<E, C>,
+): SignalStoreFeature<{}, EntityFeatureOutput<E, C>>;
 ```
 
-Préfixe les noms : `usersIds`, `usersEntityMap`, `usersEntities`. Plusieurs `withEntities` dans le même `signalStore` = OK tant que les `collection` diffèrent.
+Ajoute au store, **clés dérivées du préfixe `C`** :
+
+- `<C>Ids: ReadonlySignal<EntityId[]>` (ou `ids` si `C = ''`) — ordre d'insertion
+- `<C>EntityMap: ReadonlySignal<Record<EntityId, E>>` (ou `entityMap`) — lookup O(1)
+- `<C>Entities: ReadonlySignal<E[]>` (ou `entities`) — computed `ids.map(id => map[id])`
+
+Plusieurs `withEntities` dans le même `signalStore` = OK tant que les `collection` diffèrent (collision détectée par le check de §4.1).
 
 #### Updaters (à passer à `patchState`)
 
-Tous retournent un `StateUpdater` (closure qui prend le state courant et retourne un partial).
+Chaque updater retourne un `CollectionUpdater<E, C>` — closure `(state) => Partial<CollectionSlice<E, C>>`. Le `cfg` est **toujours requis** (pas optionnel) :
 
 ```ts
-addEntity<E>(entity: E, config?: EntityConfig): StateUpdater
-addEntities<E>(entities: E[], config?: EntityConfig): StateUpdater
-setEntity<E>(entity: E, config?): StateUpdater       // upsert single
-setEntities<E>(entities: E[], config?): StateUpdater
-setAllEntities<E>(entities: E[], config?): StateUpdater  // remplace tout
-updateEntity<E>(update: { id, changes: Partial<E> | (e: E) => Partial<E> }, config?): StateUpdater
-updateEntities<E>(updates: Update<E>[], config?): StateUpdater
-updateAllEntities<E>(changes, config?): StateUpdater
-removeEntity(id: string|number, config?): StateUpdater
-removeEntities(ids: (string|number)[] | predicate, config?): StateUpdater
-removeAllEntities(config?): StateUpdater
+addEntity<E, C>(entity: E, cfg: EntityConfig<E, C>): CollectionUpdater<E, C>
+addEntities<E, C>(entities: readonly E[], cfg): CollectionUpdater<E, C>
+setEntity<E, C>(entity: E, cfg): CollectionUpdater<E, C>           // upsert single
+setEntities<E, C>(entities: readonly E[], cfg): CollectionUpdater<E, C>
+setAllEntities<E, C>(entities: readonly E[], cfg): CollectionUpdater<E, C>  // remplace tout
+updateEntity<E, C>(update: { id, changes: Partial<E> | (e: E) => Partial<E> }, cfg): CollectionUpdater<E, C>
+updateEntities<E, C>(updates: ReadonlyArray<{ id, changes }>, cfg): CollectionUpdater<E, C>
+updateAllEntities<E, C>(changes, cfg): CollectionUpdater<E, C>
+removeEntity<E, C>(id: EntityId, cfg): CollectionUpdater<E, C>
+removeEntities<E, C>(ids: readonly EntityId[], cfg): CollectionUpdater<E, C>
+removeAllEntities<E, C>(cfg): CollectionUpdater<E, C>
 ```
 
-Le `config` permet de cibler une collection nommée :
+Exemple d'utilisation :
+
 ```ts
-patchState(store, addEntity(user, { collection: 'users' }));
+const todosCfg = entityConfig<Todo>({ collection: 'todos' });
+const usersCfg = entityConfig<User>({ collection: 'users', selectId: (u) => u.uuid });
+
+const store = signalStore(
+  withEntities(todosCfg),
+  withEntities(usersCfg),
+);
+
+patchState(store, addEntity(todo, todosCfg));
+patchState(store, addEntity(user, usersCfg));
 ```
 
-Si pas de `collection` fournie, opère sur la collection default (sans préfixe). Throw runtime si l'updater cible une collection inexistante.
+**No-op semantics** : `addEntity` sur id existant, `removeEntity` sur id inconnu, `updateEntity` sur id inconnu → retournent `{}` (mutation ignorée par le reducer). `setEntity` upsert (overwrite si existe, append sinon).
+
+### 4.7. `destroyStore(store)`
+
+```ts
+function destroyStore(store: object): void;
+```
+
+Tear down le pipeline rxjs interne (cf. §5.5) : `cleanup.unsubscribe()` sur l'agrégateur de subscriptions, puis `complete()` sur `mutations$` et `state$`.
+
+- **Idempotent** : safe à appeler plusieurs fois (no-op après le premier appel).
+- **Sémantique post-destroy** : les signaux gardent leur dernière valeur lue, `patchState` est silencieusement no-op (pas de throw).
+- **Option B (Provider React)** : le `<Provider>` de `@fluch/signal-store-react` appelle `destroyStore` automatiquement à l'unmount — le consommateur ne l'appelle jamais.
+- **Option A (singleton module)** : à la discrétion du consommateur. En pratique, le store vit aussi longtemps que l'app et `destroyStore` n'est jamais appelé hors tests d'isolation.
+
+### 4.8. `withHooks({ onInit, onDestroy })`
+
+```ts
+interface HooksConfig<In extends object> {
+  onInit?: (store: In) => void;
+  onDestroy?: (store: In) => void;
+}
+
+function withHooks<In extends object>(hooks: HooksConfig<In>): SignalStoreFeature<In, {}>;
+```
+
+Enregistre des callbacks de cycle de vie sur le store. Les deux callbacks sont optionnels indépendamment ; `withHooks({})` est un no-op valide.
+
+- **`onInit`** s'exécute synchrone **à la fin** de `signalStore(...)`, après que toutes les features (même celles placées après `withHooks` dans la composition) soient assemblées. Le `store` passé est l'objet final : signaux, computed et méthodes sont tous accessibles. `onInit` peut pousser des mutations initiales via `patchState`.
+- **`onDestroy`** s'exécute à l'invocation de `destroyStore` (donc automatiquement à l'unmount du `<Provider>` React). Idempotent — un seul appel même si `destroyStore` est rappelé (garde via `cleanup.closed`). Le store est encore **live** quand `onDestroy` fire : les signaux sont lisibles, `patchState` propage normalement, on peut faire un dernier cleanup managé. Le tear-down du pipeline rxjs (cf. §5.5) intervient juste après. La sémantique "silent no-op de patchState après destroy" s'applique au code **externe** appelé une fois `destroyStore` retourné.
+
+Plusieurs `withHooks(...)` dans le même `signalStore(...)` sont autorisés : les `onInit` s'exécutent dans l'ordre de composition (`[1, 2, 3]`), les `onDestroy` en **ordre inverse** (LIFO, `[3, 2, 1]`) — sémantique habituelle d'un stack de teardowns. Aligné NgRx SignalStore.
+
+**Synchrones uniquement**. Le type est `(store) => void` strict — TypeScript refuse `onInit: async () => {...}`. Aligné NgRx (cf. leur `HookFn`). Pour du fire-and-forget intentionnel, wrapper en IIFE explicite :
+
+```ts
+withHooks({
+  onInit(s) {
+    void (async () => {
+      const data = await fetchInitialData();
+      patchState(s, { data });
+    })();
+  },
+})
+```
+
+Pour des pipelines async **gérés** (cancellable, debounced, etc.), c'est `rxMethod` (v2) qui couvrira — l'IIFE reste un fallback pour les cas simples.
+
+Si `onInit` throw, l'erreur remonte et `signalStore(...)` ne retourne pas. Attraper l'erreur côté caller et invoquer `destroyStore` sur le store partiel si nécessaire pour libérer les ressources.
+
+**Typage** : `In` est inféré par la position dans la composition — `onInit`/`onDestroy` reçoivent au type-level uniquement les features qui précèdent `withHooks`. Au runtime le store est complet. Placer `withHooks` en dernier pour avoir visibilité maximale au type-level.
+
+```ts
+const store = signalStore(
+  withState({ count: 0 }),
+  withMethods((s) => ({
+    increment: () => patchState(s, { count: s.count.value + 1 }),
+  })),
+  withHooks({
+    onInit(s) { patchState(s, { count: 1 }); },
+    onDestroy(s) { console.log('final:', s.count.value); },
+  }),
+);
+```
 
 ## 5. Notes d'implémentation
 
 ### 5.1. Modèle interne du store
 
-Le store est construit en **trois passes** :
+Le store est construit en **une seule passe**. `signalStore(...features)` crée un accumulateur (objet `{}` portant un `META` symbole non-énumérable, cf. §5.5), puis exécute chaque feature séquentiellement en fusionnant son output dans l'accumulateur. Collision de clés (même nom déclaré deux fois, state vs computed vs method) → throw au runtime.
 
-1. **State pass** : exécute toutes les `withState`, fusionne les états initiaux, crée un signal par clé.
-2. **Computed pass** : exécute toutes les `withComputed` dans l'ordre, en passant `{ ...stateSignals, ...computedSignalsSoFar }`.
-3. **Methods pass** : exécute toutes les `withMethods` dans l'ordre, en passant `{ ...stateSignals, ...computedSignals }`. Les méthodes peuvent référencer d'autres méthodes par closure si elles sont déjà définies, mais pas en cross-référence — pour de la cross-référence il faut wrap dans une lambda qui lit `store.foo` à l'appel.
+```ts
+function signalStore(...features: SignalStoreFeature[]): unknown {
+  const acc = createStoreInternals();   // {} + META symbole
+  for (const feature of features) {
+    const out = feature(acc);
+    for (const key in out) {
+      if (key in acc) throw new Error(`duplicate key "${key}"`);
+      acc[key] = out[key];
+    }
+  }
+  return acc;
+}
+```
 
-L'ordre de composition compte : `withMethods` doit pouvoir lire les `withComputed` déclarés avant lui.
+Les features sont juste des fonctions `(input) => output`. Pas de distinction state/computed/methods en interne au moment de la composition — la "passe d'état" est entièrement encapsulée dans `withState` (qui appelle `meta.declareState`), et `withComputed`/`withMethods` sont de simples relais qui lisent l'accumulateur.
+
+L'ordre de composition compte : `withMethods` doit pouvoir lire les `withComputed` déclarés avant lui — l'accumulateur partagé garantit que c'est le cas.
 
 ```ts
 const store = signalStore(
@@ -238,11 +337,17 @@ C'est la partie la plus exigeante. L'inférence doit propager à travers la comp
 
 ```ts
 type SignalStoreFeature<Input = {}, Output = {}> = (input: Input) => Output;
-
-function signalStore<F extends SignalStoreFeature[]>(...features: F): ComposeAll<F>;
 ```
 
-À l'agent : s'inspirer du code source de `@ngrx/signals` pour les helpers de type (chain de génériques accumulés). Cible : que l'utilisateur puisse écrire le store sans aucune annotation de type, et que l'IDE infère parfaitement les signaux et méthodes accessibles.
+**Choix d'implémentation : 10 overloads positionnels** plutôt qu'un helper `ComposeAll<F>` variadique. Cf. [packages/core/src/signal-store.ts](packages/core/src/signal-store.ts) — chaque overload accumule les outputs en intersection (`Out1 & Out2 & ... & OutN`) et passe `EmptySlot & Out1 & ... & OutN-1` en input de la `N`-ème feature. Bénéfices vs `ComposeAll<F>` :
+
+- Pas de récursion de types coûteuse au check time (TypeScript ne fait pas exploser le compilateur).
+- Erreurs de typage localisées sur la feature fautive (vs un message générique sur `ComposeAll`).
+- Inférence parfaite garantie sur les 10 premières features.
+
+**Plafond : 10 features par appel.** Au-delà, factoriser en sub-features (`composeFeatures(a, b, c)` qui retourne un `SignalStoreFeature` unique). Acceptable parce que les stores réels font rarement > 5–6 features ; et la limite est explicite, pas un "ça plante mystérieusement".
+
+Cible atteinte : l'utilisateur écrit le store sans aucune annotation, l'IDE infère parfaitement les signaux et méthodes accessibles.
 
 ### 5.3. `Object.freeze` en dev
 
@@ -259,38 +364,84 @@ function devFreeze<T>(value: T): T {
 
 À appliquer à chaque valeur mise dans un signal (init + après patch).
 
-### 5.4. Stratégie pour les entities
+### 5.4. Stratégie pour les entities (closure pattern)
 
 State interne par collection :
+
 ```ts
-{ ids: ID[], entityMap: Record<ID, E> }
+{ [`${C}Ids`]: EntityId[], [`${C}EntityMap`]: Record<EntityId, E> }
 ```
 
-`entities` est un `computed` qui mappe `ids → entityMap[id]`. **Important** : la dépendance computed se déclenche quand `ids` OU `entityMap` change, donc tout patch d'entity → re-render des consommateurs de `entities`. Pour réactivité plus fine, le consommateur peut faire son propre `computed` filtré.
+(Pour mono-collection avec `C = ''` : juste `ids` et `entityMap`. Les noms sont dérivés au type-level via `IdsKey<C>` / `MapKey<C>` / `EntitiesKey<C>` — cf. [packages/entities/src/types.ts](packages/entities/src/types.ts).)
 
-Updater `addEntity(e)` retourne :
+`<C>Entities` est un `computed` qui mappe `<C>Ids → <C>EntityMap[id]`. **Important** : la dépendance computed se déclenche quand `<C>Ids` OU `<C>EntityMap` change, donc tout patch d'entity → re-render des consommateurs de `<C>Entities`. Pour une réactivité plus fine, le consommateur peut faire son propre `computed` filtré.
+
+**Comment l'updater connaît `selectId` et le préfixe `collection`** : par **closure**, pas par registre interne. Le consommateur capture le cfg dans une const top-level, et le passe explicitement à `withEntities` et à chaque updater :
+
 ```ts
-(state) => ({
-  ids: [...state.ids, selectId(e)],
-  entityMap: { ...state.entityMap, [selectId(e)]: e },
-})
+const todosCfg = entityConfig<Todo>({ collection: 'todos' });
+
+withEntities(todosCfg);                              // déclare todosIds/todosEntityMap/todosEntities
+patchState(store, addEntity(todo, todosCfg));        // updater capture todosCfg.collection + selectId
 ```
 
-Pour multi-collection avec préfixe `users` :
+L'updater `addEntity(e, cfg)` retourne :
+
 ```ts
-(state) => ({
-  usersIds: [...state.usersIds, selectId(e)],
-  usersEntityMap: { ...state.usersEntityMap, [selectId(e)]: e },
-})
+(state) => {
+  const kIds = idsKey(cfg.collection);   // 'todosIds' ou 'ids'
+  const kMap = mapKey(cfg.collection);   // 'todosEntityMap' ou 'entityMap'
+  const id = cfg.selectId(e);
+  if (id in state[kMap]) return {};      // no-op si déjà présent
+  return {
+    [kIds]: [...state[kIds], id],
+    [kMap]: { ...state[kMap], [id]: e },
+  };
+};
 ```
 
-L'updater connaît la `collection` via le `config` argument. Le config par défaut est lu d'un registre interne au store (chaque `withEntities` enregistre sa collection + son `selectId`).
+**Rationale du choix closure plutôt que registre interne** :
 
-**Détail crucial** : `selectId` doit être disponible à l'updater au moment de l'exécution. Solutions :
-- (a) Le store stocke un registre `__entityConfigs__: { [collection]: { selectId } }` lu par les updaters
-- (b) Les updaters reçoivent le store en paramètre (cassent la composition fluide avec `patchState`)
+- **Meilleur typage** : le `collection` literal `C extends string` permet de dériver `<C>Ids/<C>EntityMap/<C>Entities` au type-level. Un registre runtime aurait demandé des assertions de type ou un `as const` côté consommateur.
+- **Simplicité** : pas de magic registry attaché au store, pas de symbole non-énumérable, pas de lookup runtime. L'updater est une fonction pure paramétrée.
+- **Explicit > implicit** : le consommateur voit exactement quelle config est utilisée à chaque appel. Renommer la const `todosCfg` → grep-friendly.
 
-→ Aller sur **(a)**. Le registre est attaché au store comme symbole non-énumérable.
+**Coût accepté** : le consommateur doit créer une const par collection et la passer partout. Verbosité acceptable pour des collections nommées (cas par défaut = mono-collection ; le cfg peut être créé inline `entityConfig()` si besoin).
+
+### 5.5. Pipeline rxjs interne (signal-facade over raw source)
+
+Décrit l'architecture interne du moteur de store. **L'API publique n'expose rien de rxjs** — c'est un détail d'implémentation, mais il est verrouillé parce qu'il conditionne tous les chantiers v2 (devtools, hooks, persistence, time-travel, `rxMethod`).
+
+**Source de vérité** : un `BehaviorSubject<RawState>` détient le state brut (objet JS plain, JSON-sérialisable). Les signaux exposés à l'utilisateur sont une **facade en lecture** synchronisée par subscription.
+
+**Composants** (cf. [packages/core/src/store-meta.ts](packages/core/src/store-meta.ts)) :
+
+- `META: symbol` — propriété **non-énumérable** attachée à l'objet store ; transporte le `StoreMeta` (channels + cleanup).
+- `mutations$: Subject<Partial<RawState> | (s: RawState) => Partial<RawState>>` — channel d'entrée : `patchState` push ici.
+- `state$: BehaviorSubject<RawState>` — source brute, mise à jour par le reducer.
+- **Reducer** (`scan` operator) : pour chaque `mutation` poussée dans `mutations$`, applique le partial sur l'état courant **en ne retenant que les clés enregistrées** via `declareState` (les clés inconnues sont silencieusement ignorées). En dev, freeze profond du partial avant assignation.
+- **Facade signaux** : pour chaque clé déclarée via `withState`/`withEntities`, on crée un `Signal<T>` et on souscrit `state$.pipe(map(s => s[k]), distinctUntilChanged()).subscribe(v => signal.value = v)`. C'est cette subscription qui est l'unique writer du signal → les signaux sont readonly de l'extérieur sans avoir besoin du type `ReadonlySignal`.
+- `cleanup: Subscription` — agrège toutes les subscriptions (reducer + facade). `destroyStore` appelle `cleanup.unsubscribe() + mutations$.complete() + state$.complete()`.
+
+**Flux d'un `patchState`** :
+
+```text
+patchState(store, { count: 5 })
+  → mutations$.next({ count: 5 })
+  → scan reducer : nextState = { ...state, count: devFreeze(5) }
+  → state$.next(nextState)
+  → facade subscriptions : signal.value = 5 (si distinctUntilChanged passe)
+  → @preact/signals-core notifie les effects/computed → React re-rend
+```
+
+**Bénéfices pour v2** :
+
+- **DevTools** : sub à `mutations$` pour récupérer les actions (nom dérivé de la stack), sub à `state$` pour snapshot après chaque commit. Pas de monkey-patch de `patchState`.
+- **`rxMethod`** : pipeline RxJS qui peut subscriber à `state$` pour ses dépendances, et pousser via `mutations$.next(...)` pour ses effets de bord. Naturel parce que les channels sont déjà des `Subject`/`BehaviorSubject`.
+- **`withHooks({ onInit, onDestroy })`** : `onDestroy` se branche directement sur `cleanup.add(() => fn())`. `onInit` peut recevoir un snapshot brut de `state$.value`.
+- **Persistence/time-travel** : `state$.value` est JSON-sérialisable (state brut), `localStorage.setItem` + `state$.next(parsed)` pour restore. Snapshots = `[]` qui accumule des `state$.value` à chaque mutation.
+
+**Trade-off** : rxjs est passé de "package v2" à "peer dep du core". Bundle size du core mesuré 1.3kb gzip (rxjs étant peer dep, n'est pas compté dans le bundle de la lib). Le consommateur paie rxjs dans son app — mais en pratique l'écosystème React qui voudrait cette lib a déjà rxjs (ngrx interop, rxjs-react, etc.).
 
 ## 6. Exemple complet attendu
 
@@ -586,15 +737,24 @@ V1 : URL GitHub Pages par défaut (`clemparpa.github.io/signal-store` ou équiva
 
 ## 10. Hors scope v1 — design préliminaire pour v2
 
-À documenter mais NE PAS implémenter :
+À documenter mais NE PAS implémenter (sauf le premier item qui est ✅ déjà livré dans v1) :
 
-- **Refactor archi interne — source brute + signaux en facade** (à faire AVANT toute feature v2) : le store v1 stocke les valeurs directement dans des Signal (signal-first). Pour les features v2 (devtools, hooks, persistence, time-travel), il faut basculer vers le modèle NgRx : un objet brut `rawState` détient la source de vérité, les signaux deviennent une facade en lecture qui se met à jour quand `patchState` écrit dans `rawState`. Bénéfices : (a) sérialisation triviale du state pour devtools et localStorage, (b) snapshot/restore en O(1) pour time-travel, (c) `onInit` peut recevoir l'objet brut, (d) base saine pour distinguer state vs computed vs methods en interne (besoin pour devtools qui ne doit serialiser que le state). Le refactor est interne — l'API publique (`store.count.value`, `patchState(store, ...)`) ne change pas. Une PR dédiée `refactor: signal facade over raw source`, sans nouvelles features.
-- **`rxMethod`** : prend un input (`Signal<T> | Observable<T> | T`), un pipeline RxJS, exécute. Source : `@ngrx/signals/rxjs-interop`. Helpers `toObservable(signal)` et `toSignal(observable)` à porter (~20 lignes chacun avec Preact signals).
-- **`withHooks({ onInit, onDestroy })`** : `onInit` au premier accès au store (singleton) ou au mount du Provider (mode B). `onDestroy` uniquement en mode B (unmount Provider).
-- **DevTools** : intercepter chaque `patchState`, push dans Redux DevTools extension avec un nom d'action dérivé de la stack (`addTodo`, `setFilter`).
-- **Sort comparator entities** : option `sortComparer` dans `withEntities`. Auto-tri à chaque insert/update.
+- **✅ Refactor archi interne — source brute + signaux en facade** : **livré dans v1** (cf. §5.5). Initialement prévu en tête de v2, fait dans le périmètre v1 parce que le coût de migration grossissait avec chaque test ajouté. L'API publique (`store.count.value`, `patchState(store, ...)`) n'a pas bougé. Les autres items v2 ci-dessous s'appuient sur cette base.
+- **✅ `withHooks({ onInit, onDestroy })`** : **livré dans v2 (branche `feat/with-hooks`, cf. §4.8)**. `onInit` drainé à la fin de `signalStore(...)` (voit le store complet). `onDestroy` enregistré sur `cleanup: Subscription` du §5.5 en LIFO (déclenché par `destroyStore` ou automatiquement à l'unmount Provider). Premier chantier v2 — c'est un pré-requis ergonomique pour `rxMethod` (teardown des pipelines) et `devtools` (registration au init).
+- **`rxMethod`** : prend un input (`Signal<T> | Observable<T> | T`), un pipeline RxJS, exécute. Source : `@ngrx/signals/rxjs-interop`. Helpers `toObservable(signal)` et `toSignal(observable)` à porter (~20 lignes chacun avec Preact signals). **Rationale facilité** : le store est déjà pipeline-based (§5.5). `rxMethod` lit `state$` pour ses dépendances et pousse via `mutations$.next(...)` pour ses effets. Package séparé `@fluch/signal-store-rxjs`.
+- **DevTools** : sub à `mutations$` pour récupérer chaque action (nom dérivé de la stack — `addTodo`, `setFilter`) et à `state$` pour le snapshot après commit. Pas de monkey-patch de `patchState`. Le state brut étant déjà JSON-sérialisable, intégration Redux DevTools triviale. Package séparé `@fluch/signal-store-devtools`.
+- **Sort comparator entities** : option `sortComparer` ajoutée à `entityConfig`. Auto-tri à chaque insert/update. Implémentation : le `<C>Entities` computed applique le `sortComparer` sur le `<C>Ids.map(id => map[id])` si présent dans le cfg.
 
-## 11. Checklist de livraison v1
+## 11. Livraison v1 — historique
+
+v1.0.0 publiée le **2026-05-12** (`@fluch/signal-store@0.3.1`, `@fluch/signal-store-entities@0.1.1`, `@fluch/signal-store-react@0.1.1`). Items cochés au moment de la livraison.
+
+Deux additions **post-spec** ont été apportées pour préparer la v2 sereinement :
+
+- **Refactor signal-facade over raw rxjs source** (cf. §5.5) — initialement prévu en début de v2, fait dans le périmètre v1 parce que le coût de migration grossissait avec chaque test ajouté. Ajout de `rxjs ^7.8.0` en peer dep du core.
+- **`destroyStore`** (cf. §4.7) — nouveau public API non listé dans la spec initiale. Nécessaire dès qu'on a un pipeline rxjs (sinon fuite de subscriptions à l'unmount du Provider React).
+
+Checklist d'origine, telle que cochée à la livraison :
 
 - [x] Repo monorepo pnpm initialisé, workspaces configurés
 - [x] `@fluch/signal-store` (core) : signalStore, withState, withComputed, withMethods, patchState

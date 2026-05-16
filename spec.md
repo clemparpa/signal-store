@@ -297,6 +297,74 @@ const store = signalStore(
 );
 ```
 
+### 4.9. `rxMethod(store, generator)`
+
+```ts
+type RxMethod<Input> = (
+  input: Input | Signal<Input> | ReadonlySignal<Input> | Observable<Input>,
+) => Subscription;
+
+function rxMethod<Input>(
+  store: object,
+  generator: (source$: Observable<Input>) => Observable<unknown>,
+): RxMethod<Input>;
+```
+
+Crée une méthode managée alimentée par un pipeline RxJS. Le `store` (l'accumulateur passé à `withMethods`, ou toute valeur retournée par `signalStore(...)`) est explicite — il porte le `META` interne qui permet à `rxMethod` de s'enregistrer sur `meta.cleanup` (cf. §5.5). Aligne la convention `patchState(store, ...)` / `destroyStore(store)` : pas de DI implicite, pas de magic.
+
+- **Sémantique pipeline** : un unique `Subject<Input>` est créé en interne, le `generator` y branche son pipeline, et la subscription résultante est ajoutée à `meta.cleanup`. **Toutes** les invocations passent par ce même Subject — les opérateurs stateful (`debounceTime`, `switchMap`, `concatMap`, etc.) se comportent correctement entre appels.
+- **Trois shapes d'input** acceptées :
+  - **Scalaire `Input`** : pushé une fois via `source$.next(input)`. Retourne `Subscription.EMPTY`.
+  - **Signal `Signal<Input> | ReadonlySignal<Input>`** : la valeur courante est pushée immédiatement (sémantique `signal.subscribe` Preact), puis chaque change. Retourne la Subscription du binding signal → l'appelant peut `unsubscribe()` pour couper le pont avant `destroyStore`.
+  - **Observable `Observable<Input>`** : chaque émission est forwardée. Retourne la Subscription source. La complétion de la source ne complète **pas** le pipeline (resté ouvert pour de futurs inputs).
+- **Auto-cleanup** : la subscription du pipeline + chaque binding signal/observable sont ajoutés à `meta.cleanup`. `destroyStore(store)` (ou le Provider React à l'unmount) teardown tout.
+- **Post-destroy** : appel silencieux (no-op), retourne `Subscription.EMPTY`. Aligne `patchState` (§4.5).
+- **Erreurs pipeline** : standards RxJS — un throw dans `tap`/`map` propage à la subscription et la termine. Wrap avec `catchError` à l'intérieur du `generator` pour récupérer.
+
+```ts
+const userStore = signalStore(
+  withState({ user: null as User | null, loading: false }),
+  withMethods((store) => ({
+    loadUser: rxMethod<string>(store, (id$) =>
+      id$.pipe(
+        tap(() => patchState(store, { loading: true })),
+        debounceTime(200),
+        switchMap((id) => from(api.loadUser(id))),
+        tap((user) => patchState(store, { user, loading: false })),
+      ),
+    ),
+  })),
+);
+
+userStore.loadUser('id-123');           // scalar — fires once
+userStore.loadUser(searchIdSignal);     // signal — re-fires on every change
+userStore.loadUser(idObservable$);      // observable — forwards each emission
+```
+
+**Pourquoi pas une feature `withRxMethod(...)`** : 1 feature par méthode serait verbeux (et limité à 10 features par `signalStore`). Le pattern NgRx `rxMethod` à l'intérieur de `withMethods((store) => ({...}))` est plus naturel — `withMethods` reçoit déjà le store accumulé, et `rxMethod(store, ...)` s'y greffe sans nouveau slot dans la composition. C'est aussi pourquoi `rxMethod` n'est **pas** un `SignalStoreFeature` mais un helper retournant une fonction.
+
+**Throw** si appelé avec un objet qui ne porte pas le `META` symbol (i.e. pas un store) : *"rxMethod must be called with a signalStore(...) instance"*.
+
+### 4.10. `toObservable(signal)`
+
+```ts
+function toObservable<T>(sig: Signal<T> | ReadonlySignal<T>): Observable<T>;
+```
+
+Wrappe un signal Preact en `Observable<T>` cold. Sur subscribe, émet immédiatement la valeur courante (Preact `signal.subscribe` fire synchrone avec la valeur initiale), puis chaque change. L'unsubscribe libère la subscription signal sous-jacente.
+
+Utilisé en interne par `rxMethod` quand l'input est un signal. Exposé publiquement parce qu'utile pour composer des signals dans des pipelines plus larges sans passer par `rxMethod` (ex: `combineLatest(toObservable(a), toObservable(b))`).
+
+```ts
+const count = signal(0);
+const sub = toObservable(count).subscribe((v) => console.log(v));
+// → 0 (synchrone à subscribe)
+count.value = 1; // → 1
+sub.unsubscribe();
+```
+
+`toSignal(observable, initial)` (inverse) **n'est pas exposé en v2**. Le cleanup d'un Observable infini exigerait soit `toSignal(store, obs$, initial)` (verbeux pour un cas marginal), soit un nouveau pattern de registration — différé tant qu'il n'y a pas de cas d'usage exprimé.
+
 ## 5. Notes d'implémentation
 
 ### 5.1. Modèle interne du store
@@ -741,8 +809,8 @@ V1 : URL GitHub Pages par défaut (`clemparpa.github.io/signal-store` ou équiva
 
 - **✅ Refactor archi interne — source brute + signaux en facade** : **livré dans v1** (cf. §5.5). Initialement prévu en tête de v2, fait dans le périmètre v1 parce que le coût de migration grossissait avec chaque test ajouté. L'API publique (`store.count.value`, `patchState(store, ...)`) n'a pas bougé. Les autres items v2 ci-dessous s'appuient sur cette base.
 - **✅ `withHooks({ onInit, onDestroy })`** : **livré dans v2 (branche `feat/with-hooks`, cf. §4.8)**. `onInit` drainé à la fin de `signalStore(...)` (voit le store complet). `onDestroy` enregistré sur `cleanup: Subscription` du §5.5 en LIFO (déclenché par `destroyStore` ou automatiquement à l'unmount Provider). Premier chantier v2 — c'est un pré-requis ergonomique pour `rxMethod` (teardown des pipelines) et `devtools` (registration au init).
-- **`rxMethod`** : prend un input (`Signal<T> | Observable<T> | T`), un pipeline RxJS, exécute. Source : `@ngrx/signals/rxjs-interop`. Helpers `toObservable(signal)` et `toSignal(observable)` à porter (~20 lignes chacun avec Preact signals). **Rationale facilité** : le store est déjà pipeline-based (§5.5). `rxMethod` lit `state$` pour ses dépendances et pousse via `mutations$.next(...)` pour ses effets. Package séparé `@fluch/signal-store-rxjs`.
-- **DevTools** : sub à `mutations$` pour récupérer chaque action (nom dérivé de la stack — `addTodo`, `setFilter`) et à `state$` pour le snapshot après commit. Pas de monkey-patch de `patchState`. Le state brut étant déjà JSON-sérialisable, intégration Redux DevTools triviale. Package séparé `@fluch/signal-store-devtools`.
+- **✅ `rxMethod` + `toObservable`** : **livré dans v2 (branche `feat/rx-method`, cf. §4.9, §4.10)**. Prend `(store, generator)` et expose une méthode acceptant scalaire / `Signal<T>` / `Observable<T>`. Pipeline subscribed une fois sur un `Subject<Input>` central — opérateurs stateful corrects entre invocations. Auto-cleanup via `meta.cleanup` (idem `withHooks.onDestroy`). Post-destroy : silent no-op. **Décision livraison vs spec initiale** : pas de package séparé `@fluch/signal-store-rxjs`. Justification d'origine (= laisser le core rxjs-free) caduque depuis le refactor §5.5 qui a fait `rxjs` peer dep obligatoire du core ; séparer ne ferait plus rien gagner (rxjs déjà payé côté consommateur, tree-shake gère le code-size). `rxMethod` vit donc dans `@fluch/signal-store`, à côté de `withMethods`. `toSignal(observable, initial)` (inverse) reporté — cleanup non-trivial pour Observable infini, pas de cas d'usage exprimé.
+- **DevTools** : sub à `mutations$` pour récupérer chaque action (nom dérivé de la stack — `addTodo`, `setFilter`) et à `state$` pour le snapshot après commit. Pas de monkey-patch de `patchState`. Le state brut étant déjà JSON-sérialisable, intégration Redux DevTools triviale. Package séparé `@fluch/signal-store-devtools` (à re-juger au moment de l'implémentation, cf. trajectoire `rxMethod`).
 - **Sort comparator entities** : option `sortComparer` ajoutée à `entityConfig`. Auto-tri à chaque insert/update. Implémentation : le `<C>Entities` computed applique le `sortComparer` sur le `<C>Ids.map(id => map[id])` si présent dans le cfg.
 
 ## 11. Livraison v1 — historique

@@ -1,0 +1,118 @@
+---
+title: Redux DevTools
+description: Bridge a signal-store instance to the Redux DevTools browser extension — action timeline, state tree, diff view, no Redux required.
+---
+
+`@fluch/signal-store-devtools` is a thin bridge that relays every store commit to the [Redux DevTools browser extension](https://github.com/reduxjs/redux-devtools/tree/main/extension). You don't use Redux — the extension is just the UI we plug into.
+
+In the extension panel, you get:
+
+- **Action timeline** with a label derived from the calling method;
+- **State tree** updated on each commit;
+- **Diff view** of the change between two snapshots.
+
+What you **don't** get in this release: time travel (`JUMP_TO_STATE` / `JUMP_TO_ACTION`), dispatched actions from the UI back into the store, action skip/reorder. These are deliberately out of scope — they require an action registry and a delta history that wouldn't fit on the v2 design.
+
+## Install
+
+```sh
+pnpm add -D @fluch/signal-store-devtools
+```
+
+Install the [Redux DevTools extension](https://chrome.google.com/webstore/detail/redux-devtools/lmhkpmbekcpmknklioeibfkpmmfibljd) in your browser if you don't already have it.
+
+## Quick start
+
+```ts
+import { signalStore, withState, withMethods, patchState } from '@fluch/signal-store';
+import { connectDevtools } from '@fluch/signal-store-devtools';
+
+const counter = signalStore(
+	withState({ count: 0 }),
+	withMethods((s) => ({
+		increment: () => patchState(s, { count: s.count.value + 1 }),
+		reset: () => patchState(s, { count: 0 }),
+	})),
+);
+
+if (import.meta.env.DEV) {
+	connectDevtools(counter, { name: 'Counter' });
+}
+
+counter.increment(); // DevTools timeline: action "increment", state { count: 1 }
+counter.reset();    // DevTools timeline: action "reset",    state { count: 0 }
+```
+
+Always wrap the call in your bundler's dev guard (`import.meta.env.DEV` for Vite, `process.env.NODE_ENV !== 'production'` for webpack/Next, …). The package is `sideEffects: false` — the entire import is then tree-shaken out of production bundles.
+
+## Action naming
+
+By default, the connector captures `new Error().stack` at each commit and walks frames until it finds one that isn't part of signal-store internals, RxJS, or `node_modules`. The first eligible function name becomes the action label.
+
+```ts
+withMethods((s) => ({
+	addTodo: (text: string) => patchState(s, (state) => ({ todos: [...state.todos, text] })),
+}));
+
+store.addTodo('walk dog'); // → action label "addTodo"
+```
+
+Both V8 (`at fn (file:line:col)`) and SpiderMonkey/JSCore (`fn@file:line:col`) stack formats are supported. When no usable frame is found, the fallback `STATE_UPDATE` is used.
+
+### Production builds
+
+In minified production bundles, function names become mangled identifiers (`a`, `b`, `c`). If you ship `connectDevtools` to production (for example to debug a beta), pass `trace: false` to skip parsing and label every action as `STATE_UPDATE` — saves a tiny amount of work and avoids confusing single-letter labels:
+
+```ts
+connectDevtools(store, { trace: false });
+```
+
+Better still: don't ship it at all. The `if (import.meta.env.DEV)` guard is the recommended pattern.
+
+## Options
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `name` | `'signal-store'` | Instance label in the DevTools picker. Use distinct names per store. |
+| `instanceId` | auto | Stable identifier; survives HMR reloads. |
+| `maxAge` | `50` | How many actions the extension retains. |
+| `trace` | `true` | Derive action label from the JS stack. Set to `false` for `STATE_UPDATE` labels. |
+
+## Multiple stores
+
+Each `connectDevtools` call produces an independent extension connection. Pass distinct `name` values so the picker shows them clearly:
+
+```ts
+connectDevtools(authStore, { name: 'Auth' });
+connectDevtools(todosStore, { name: 'Todos' });
+```
+
+## Lifecycle
+
+The connector binds itself to the store's internal cleanup channel. When `destroyStore(store)` runs — explicitly, or automatically when a React `<Provider>` unmounts — the relay tears down. No memory leak, nothing to remember.
+
+For HMR or other cases where you want to disconnect without destroying the store, call `disconnect()` on the returned handle:
+
+```ts
+const conn = connectDevtools(store);
+// later…
+conn.disconnect(); // store stays live; extension stops receiving actions
+```
+
+`disconnect()` is idempotent.
+
+## What's missing (on purpose)
+
+- **Time travel**: the extension's "jump to state" / "jump to action" controls are disabled (`features: { jump: false }`). Implementing them would require either storing a copy of every state snapshot, or replaying mutations from the start — both add weight without an obvious payoff while the dispatcher feature is also missing.
+- **Dispatcher**: the extension can send actions back to the store (typed by the user). To handle them, we'd need an explicit registry mapping action types to store methods. The "no magic" principle of signal-store argues against an implicit method-name dispatch, and an explicit registry is more code than this v2.x can absorb. Open an issue if you have a use case.
+- **Skip / reorder**: these require a delta history (we keep snapshots only). Out of scope.
+
+## Why a separate package?
+
+`signal-store-devtools` is strictly dev-only. Keeping it in its own package means the production bundle of an app that wraps `connectDevtools(store)` in `if (DEV) { … }` has zero footprint from this package — no tree-shake gymnastics needed.
+
+## API
+
+- `connectDevtools(store, options?)` — returns `{ disconnect }`.
+
+See the auto-generated [API reference](/signal-store/api/devtools/src/functions/connectdevtools/) for full type signatures.

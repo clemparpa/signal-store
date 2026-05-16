@@ -365,6 +365,51 @@ sub.unsubscribe();
 
 `toSignal(observable, initial)` (inverse) **n'est pas exposé en v2**. Le cleanup d'un Observable infini exigerait soit `toSignal(store, obs$, initial)` (verbeux pour un cas marginal), soit un nouveau pattern de registration — différé tant qu'il n'y a pas de cas d'usage exprimé.
 
+### 4.11. `connectDevtools(store, options?)` (package `@fluch/signal-store-devtools`)
+
+```ts
+type ConnectDevtoolsOptions = {
+  name?: string;        // défaut: 'signal-store'
+  instanceId?: string;  // défaut: auto-généré par l'extension
+  maxAge?: number;      // défaut: 50
+  trace?: boolean;      // défaut: true — dériver le nom d'action depuis la stack
+};
+
+type DevtoolsConnection = { disconnect(): void };
+
+function connectDevtools(store: object, options?: ConnectDevtoolsOptions): DevtoolsConnection;
+```
+
+Branche un store sur l'extension navigateur [Redux DevTools](https://github.com/reduxjs/redux-devtools/tree/main/extension). Chaque mutation publiée sur `meta.mutations$` (cf. §5.5) déclenche un `conn.send({ type: <derived> }, meta.state$.value)` — l'extension affiche timeline, action log, state tree et diff. Le snapshot initial est envoyé via `conn.init(meta.state$.value)`.
+
+- **Monitor-only** : pas de time travel (`JUMP_TO_STATE`, `JUMP_TO_ACTION`), pas de dispatcher (actions UI → store), pas de skip/reorder. Reportés v2.x+ — exigent une registry d'actions + un historique des deltas. Les features de l'extension sont toutes désactivées via `features: { jump: false, dispatch: false, ... }`.
+- **Action naming** : par défaut, `new Error().stack` est capturée à chaque mutation et un parser identifie le premier frame non-interne (skip de `derive-action-name`, `connect-devtools`, `patchState`, RxJS, `node_modules`). Supporte V8 (`at fn (file:line:col)`) et SpiderMonkey/JSCore (`fn@file:line:col`). Fallback `STATE_UPDATE` quand la stack est inutilisable. `trace: false` désactive le parsing → toutes les actions sont `STATE_UPDATE` (utile en build minifié où les noms sont mangled).
+- **Post-destroy** : auto-detach via `meta.cleanup.add(mutSub)`. `destroyStore(store)` teardown le relai automatiquement, et `patchState` post-destroy étant lui-même no-op, aucune action ne fuite après destruction.
+- **Pas d'extension installée** : silent no-op (pas de `console.warn`) — un `{ disconnect: () => {} }` est retourné. L'appel `if (DEV) connectDevtools(store)` ne casse rien en CI/headless.
+- **Tree-shaking prod** : le package est `sideEffects: false`. L'usage canonique est de wrapper l'appel dans un guard `if (import.meta.env.DEV) connectDevtools(store)` — le bundler élimine l'import en production.
+- **Multi-store** : chaque appel produit une connexion distincte. Passer un `name` (ou `instanceId`) différent par store pour distinguer dans le picker de l'extension.
+- **`disconnect()` manuel** : permet de couper le relai sans détruire le store (HMR par ex). Idempotent.
+
+```ts
+import { signalStore, withState, withMethods, patchState } from '@fluch/signal-store';
+import { connectDevtools } from '@fluch/signal-store-devtools';
+
+const counter = signalStore(
+  withState({ count: 0 }),
+  withMethods((s) => ({ increment: () => patchState(s, { count: s.count.value + 1 }) })),
+);
+
+if (import.meta.env.DEV) connectDevtools(counter, { name: 'Counter' });
+
+counter.increment(); // DevTools: action "increment", state { count: 1 }
+```
+
+**Pourquoi pas une feature `withDevtools()`** : la feature s'évalue à la composition du store et ferait référence à `window.__REDUX_DEVTOOLS_EXTENSION__` y compris dans les chemins de code prod. Un `connectDevtools(store)` impératif wrappable dans un guard `if (DEV) {...}` permet au bundler d'éliminer entièrement l'import en build prod — gain net sur la bundle size de l'app utilisatrice.
+
+**Pourquoi `@fluch/signal-store/internal` ?** Le bridge a besoin d'accéder à `getMeta` pour s'abonner à `mutations$` / `state$`. Plutôt que d'élargir la surface publique du core (qui exposerait `getMeta` à n'importe quel consommateur), on ajoute un subpath dédié au tooling : `import { getMeta } from '@fluch/signal-store/internal'`. Convention reconnue (Vue, Vite). Le contenu de ce subpath n'est **pas** régi par les contraintes semver de l'API publique.
+
+**Throw** si appelé avec un objet sans `META` : *"connectDevtools requires a store built via signalStore(...)"*.
+
 ## 5. Notes d'implémentation
 
 ### 5.1. Modèle interne du store
@@ -810,7 +855,7 @@ V1 : URL GitHub Pages par défaut (`clemparpa.github.io/signal-store` ou équiva
 - **✅ Refactor archi interne — source brute + signaux en facade** : **livré dans v1** (cf. §5.5). Initialement prévu en tête de v2, fait dans le périmètre v1 parce que le coût de migration grossissait avec chaque test ajouté. L'API publique (`store.count.value`, `patchState(store, ...)`) n'a pas bougé. Les autres items v2 ci-dessous s'appuient sur cette base.
 - **✅ `withHooks({ onInit, onDestroy })`** : **livré dans v2 (branche `feat/with-hooks`, cf. §4.8)**. `onInit` drainé à la fin de `signalStore(...)` (voit le store complet). `onDestroy` enregistré sur `cleanup: Subscription` du §5.5 en LIFO (déclenché par `destroyStore` ou automatiquement à l'unmount Provider). Premier chantier v2 — c'est un pré-requis ergonomique pour `rxMethod` (teardown des pipelines) et `devtools` (registration au init).
 - **✅ `rxMethod` + `toObservable`** : **livré dans v2 (branche `feat/rx-method`, cf. §4.9, §4.10)**. Prend `(store, generator)` et expose une méthode acceptant scalaire / `Signal<T>` / `Observable<T>`. Pipeline subscribed une fois sur un `Subject<Input>` central — opérateurs stateful corrects entre invocations. Auto-cleanup via `meta.cleanup` (idem `withHooks.onDestroy`). Post-destroy : silent no-op. **Décision livraison vs spec initiale** : pas de package séparé `@fluch/signal-store-rxjs`. Justification d'origine (= laisser le core rxjs-free) caduque depuis le refactor §5.5 qui a fait `rxjs` peer dep obligatoire du core ; séparer ne ferait plus rien gagner (rxjs déjà payé côté consommateur, tree-shake gère le code-size). `rxMethod` vit donc dans `@fluch/signal-store`, à côté de `withMethods`. `toSignal(observable, initial)` (inverse) reporté — cleanup non-trivial pour Observable infini, pas de cas d'usage exprimé.
-- **DevTools** : sub à `mutations$` pour récupérer chaque action (nom dérivé de la stack — `addTodo`, `setFilter`) et à `state$` pour le snapshot après commit. Pas de monkey-patch de `patchState`. Le state brut étant déjà JSON-sérialisable, intégration Redux DevTools triviale. Package séparé `@fluch/signal-store-devtools` (à re-juger au moment de l'implémentation, cf. trajectoire `rxMethod`).
+- **✅ DevTools** : **livré dans v2 (branche `feat/devtools`, cf. §4.11)**. Sub à `mutations$` pour relayer chaque commit (nom dérivé de la stack via parsing V8/SpiderMonkey, fallback `STATE_UPDATE`), lit `meta.state$.value` pour le snapshot post-commit. Pas de monkey-patch de `patchState`. **Décision livraison vs spec initiale** : package séparé conservé — contrairement à `rxMethod`, devtools est strictement dev-only et le tree-shake d'un guard `if (DEV) connectDevtools(...)` élimine entièrement l'import en prod. Le bridge accède à `getMeta` via un nouveau subpath `@fluch/signal-store/internal` (convention Vue/Vite) plutôt que d'élargir la surface publique du core. **Mode** : monitor-only — time travel (`JUMP_TO_STATE`/`JUMP_TO_ACTION`) et dispatcher (actions UI → store) reportés ; exigent une registry d'actions + un historique des deltas, design non trivial.
 - **Sort comparator entities** : option `sortComparer` ajoutée à `entityConfig`. Auto-tri à chaque insert/update. Implémentation : le `<C>Entities` computed applique le `sortComparer` sur le `<C>Ids.map(id => map[id])` si présent dans le cfg.
 
 ## 11. Livraison v1 — historique

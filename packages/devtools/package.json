@@ -1,0 +1,39 @@
+{
+  "name": "@fluch/signal-store-devtools",
+  "version": "0.0.0",
+  "description": "Redux DevTools Extension bridge for @fluch/signal-store",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@fluch/signal-store": "workspace:*"
+  },
+  "peerDependencies": {
+    "rxjs": "^7.8.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@preact/signals-core": "^1.8.0",
+    "rxjs": "^7.8.0"
+  }
+}

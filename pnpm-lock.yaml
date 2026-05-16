@@ -73,6 +73,19 @@ importers:
         specifier: ^7.8.0
         version: 7.8.2
 
+  packages/devtools:
+    dependencies:
+      '@fluch/signal-store':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@preact/signals-core':
+        specifier: ^1.8.0
+        version: 1.14.1
+      rxjs:
+        specifier: ^7.8.0
+        version: 7.8.2
+
   packages/entities:
     dependencies:
       '@fluch/signal-store':

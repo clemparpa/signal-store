@@ -47,6 +47,7 @@ export default defineConfig({
           items: [
             { label: 'Entities', slug: 'guides/entities' },
             { label: 'React Provider', slug: 'guides/react' },
+            { label: 'rxMethod (async side effects)', slug: 'guides/rx-method' },
           ],
         },
         typeDocSidebarGroup,

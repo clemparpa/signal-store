@@ -1,0 +1,181 @@
+---
+title: rxMethod — async, cancellable side effects
+description: Compose RxJS pipelines into store methods with auto-cleanup. Use debounceTime, switchMap, catchError, and friends without subscription bookkeeping.
+---
+
+`rxMethod` turns an RxJS pipeline into a method on your store. The pipeline subscribes **once** when the method is created, every invocation pushes into a shared `Subject<Input>`, and the subscription is torn down automatically when the store is destroyed (or when the React `<Provider>` unmounts). You never manage `Subscription` lifetimes by hand.
+
+Reach for it when you need:
+
+- **debounced** input (search-as-you-type, autosave);
+- **cancellable** in-flight requests (`switchMap`);
+- **fan-out** from a signal or upstream `Observable` into store mutations.
+
+For one-shot fire-and-forget async work, an explicit IIFE inside `withMethods` is enough — see [Lifecycle hooks](/signal-store/getting-started/first-store/#lifecycle-hooks).
+
+## Quick start
+
+```ts
+import { signalStore, withState, withMethods, rxMethod, patchState } from '@fluch/signal-store';
+import { debounceTime, switchMap, tap } from 'rxjs/operators';
+import { from } from 'rxjs';
+
+type User = { id: string; name: string };
+
+export const userStore = signalStore(
+	withState({ user: null as User | null, loading: false }),
+	withMethods((store) => ({
+		loadUser: rxMethod<string>(store, (id$) =>
+			id$.pipe(
+				tap(() => patchState(store, { loading: true })),
+				debounceTime(200),
+				switchMap((id) => from(api.loadUser(id))),
+				tap((user) => patchState(store, { user, loading: false })),
+			),
+		),
+	})),
+);
+
+userStore.loadUser('id-123');
+```
+
+The `store` argument is the accumulator that `withMethods` hands to its callback. `rxMethod` reads the store's internal cleanup channel through it; without it, `rxMethod` couldn't bind its subscription to the store's lifetime.
+
+## Three input shapes
+
+The method returned by `rxMethod<Input>` accepts three shapes; all of them feed the **same** pipeline.
+
+### Scalar
+
+The value is pushed once. Returns `Subscription.EMPTY`.
+
+```ts
+userStore.loadUser('id-123');
+```
+
+### Signal (writable or readonly/computed)
+
+The signal's current value is pushed immediately (matches Preact's `signal.subscribe` semantics), then every subsequent change. The returned `Subscription` controls the binding — `unsubscribe()` it to stop the bridge while keeping the store alive.
+
+```ts
+import { signal, computed } from '@preact/signals-core';
+
+const query = signal('');
+userStore.search(query); // re-fires every time `query.value` changes
+
+const trimmed = computed(() => query.value.trim());
+userStore.search(trimmed); // computed (ReadonlySignal) works too
+```
+
+### Observable
+
+Every emission of the source is forwarded. **Source completion does not complete the pipeline** — the method stays usable for future invocations.
+
+```ts
+import { fromEvent, map } from 'rxjs';
+
+const input = document.querySelector('input')!;
+userStore.search(fromEvent(input, 'input').pipe(map((e) => (e.target as HTMLInputElement).value)));
+```
+
+## Stateful operators across invocations
+
+Because the pipeline is subscribed once on a shared `Subject`, operators like `debounceTime`, `switchMap`, `concatMap`, `throttleTime`, `auditTime` and friends behave correctly **between** invocations.
+
+The classic search-with-cancellation pattern:
+
+```ts
+withMethods((store) => ({
+	search: rxMethod<string>(store, (q$) =>
+		q$.pipe(
+			debounceTime(200),
+			switchMap((q) => from(api.search(q))),
+			tap((results) => patchState(store, { results })),
+		),
+	),
+}));
+
+store.search('foo');
+store.search('foob');
+store.search('foobar');
+// → only one request fires (debounced to the last value), and if it's still in
+//   flight when a new query arrives, switchMap cancels it.
+```
+
+## Error handling
+
+A pipeline that errors **terminates the subscription** — that's standard RxJS, not specific to `rxMethod`. The store itself stays alive, but the method is dead. Use `catchError` to recover:
+
+```ts
+import { catchError } from 'rxjs/operators';
+import { EMPTY } from 'rxjs';
+
+withMethods((store) => ({
+	search: rxMethod<string>(store, (q$) =>
+		q$.pipe(
+			debounceTime(200),
+			switchMap((q) =>
+				from(api.search(q)).pipe(
+					catchError((err) => {
+						patchState(store, { error: String(err) });
+						return EMPTY; // swallow — pipeline stays alive
+					}),
+				),
+			),
+			tap((results) => patchState(store, { results, error: null })),
+		),
+	),
+}));
+```
+
+Place `catchError` **inside the inner pipeline** (the one returned by `switchMap`), not at the top level — otherwise an error from one search kills the method for the whole session.
+
+## Cleanup
+
+You don't manage subscriptions. The pipeline subscription and every per-invocation binding (signal/Observable) are registered on the store's internal cleanup. They tear down when:
+
+- `destroyStore(store)` is called explicitly, **or**
+- the React `<Provider>` unmounts (which calls `destroyStore` for you).
+
+After teardown, further invocations are a silent no-op returning `Subscription.EMPTY` — same semantics as `patchState`.
+
+For finer control, the per-invocation `Subscription` returned by the method can be unsubscribed manually:
+
+```ts
+const sub = userStore.search(query); // signal binding
+sub.unsubscribe(); // stop reacting to `query` changes, store still live
+```
+
+## `toObservable` — bridge a signal into a wider RxJS pipeline
+
+When you need to compose a signal into an RxJS chain **outside** of `rxMethod` (e.g. `combineLatest` between two signals), use the companion helper:
+
+```ts
+import { toObservable } from '@fluch/signal-store';
+import { combineLatest } from 'rxjs';
+
+const a = signal(1);
+const b = signal(2);
+
+const sum$ = combineLatest([toObservable(a), toObservable(b)]).pipe(
+	map(([x, y]) => x + y),
+);
+```
+
+`toObservable(sig)` emits the current value synchronously on subscribe, then every change. Unsubscribing releases the underlying signal subscription.
+
+`toSignal(observable, initial)` (the inverse) is not shipped yet — managing cleanup for an infinite source requires the same kind of store binding as `rxMethod`. Open an issue if you hit the use case.
+
+## Gotchas
+
+- **`rxMethod` is a helper, not a feature.** It lives **inside** `withMethods((store) => ({ ... }))`, not at the top level of `signalStore(...)`. The first argument is the store the callback receives.
+- **The pipeline never completes on its own.** A finite source like `of(1, 2, 3)` emits and ends, but the pipeline stays open for future invocations. The only thing that completes the pipeline is `destroyStore` (or an unhandled error inside it).
+- **`catchError` placement matters.** Put it inside the inner Observable returned by `switchMap`/`mergeMap`, so an error from one job doesn't kill the whole method.
+- **No Angular DI here.** The `store` argument is passed explicitly — same convention as `patchState(store, ...)` and `destroyStore(store)`. There is no implicit `inject()`.
+
+## API
+
+- `rxMethod<Input>(store, generator)` — returns a method `(input: Input | Signal<Input> | Observable<Input>) => Subscription`.
+- `toObservable(signal)` — returns `Observable<T>`; emits current value on subscribe, then every change.
+
+See the auto-generated [API reference](/signal-store/api/core/src/functions/rxmethod/) for full type signatures.

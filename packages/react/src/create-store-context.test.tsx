@@ -1,8 +1,15 @@
-import { patchState, signalStore, withMethods, withState } from '@fluch/signal-store';
+import { patchState, signalStore, withHooks, withMethods, withState } from '@fluch/signal-store';
+import type { ReadonlySignal, Signal } from '@preact/signals-core';
 import { act, render, renderHook, screen } from '@testing-library/react';
-import { type ReactElement, type ReactNode, useState } from 'react';
+import { type ReactElement, type ReactNode, useEffect, useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { createStoreContext } from './create-store-context';
+
+function useSignalValue<T>(sig: Signal<T> | ReadonlySignal<T>): T {
+  const [value, setValue] = useState<T>(sig.peek());
+  useEffect(() => sig.subscribe(setValue), [sig]);
+  return value;
+}
 
 const makeCounterStore = () =>
   signalStore(
@@ -217,5 +224,86 @@ describe('createStoreContext — cleanup on unmount', () => {
 
     patchState(store, { count: 999 });
     expect(store.count.value).toBe(0);
+  });
+});
+
+describe('createStoreContext — withHooks integration', () => {
+  it('calls onInit at mount and onDestroy at unmount', () => {
+    const onInit = vi.fn();
+    const onDestroy = vi.fn();
+    const factory = () => signalStore(withState({ count: 0 }), withHooks({ onInit, onDestroy }));
+
+    const { Provider } = createStoreContext(factory);
+    const { unmount } = render(
+      <Provider>
+        <span>x</span>
+      </Provider>,
+    );
+
+    expect(onInit).toHaveBeenCalledTimes(1);
+    expect(onDestroy).not.toHaveBeenCalled();
+
+    unmount();
+
+    expect(onInit).toHaveBeenCalledTimes(1);
+    expect(onDestroy).toHaveBeenCalledTimes(1);
+
+    const destroyedStore = onDestroy.mock.calls[0]?.[0] as { count: { value: number } };
+    expect(destroyedStore.count.value).toBe(0);
+  });
+
+  it('runs the full lifecycle: onInit patches state, children render it, onDestroy reads the final value', () => {
+    const seenAtDestroy = vi.fn<(final: number) => void>();
+    const factory = (props: { initial: number }) =>
+      signalStore(
+        withState({ count: props.initial }),
+        withMethods((s) => ({
+          increment: () => patchState(s, { count: s.count.value + 1 }),
+        })),
+        withHooks({
+          onInit(s) {
+            patchState(s, { count: s.count.value + 100 });
+          },
+          onDestroy(s) {
+            seenAtDestroy(s.count.value);
+          },
+        }),
+      );
+
+    const { Provider, useStore } = createStoreContext(factory);
+
+    function Display(): ReactElement {
+      const store = useStore();
+      const count = useSignalValue(store.count);
+      return (
+        <button
+          type="button"
+          data-testid="row"
+          onClick={() => {
+            store.increment();
+          }}
+        >
+          {count}
+        </button>
+      );
+    }
+
+    const { unmount } = render(
+      <Provider initial={1}>
+        <Display />
+      </Provider>,
+    );
+
+    expect(screen.getByTestId('row').textContent).toBe('101');
+
+    act(() => {
+      screen.getByTestId('row').click();
+    });
+    expect(screen.getByTestId('row').textContent).toBe('102');
+
+    unmount();
+
+    expect(seenAtDestroy).toHaveBeenCalledTimes(1);
+    expect(seenAtDestroy).toHaveBeenCalledWith(102);
   });
 });

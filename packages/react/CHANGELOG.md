@@ -1,5 +1,16 @@
 # @fluch/signal-store-react
 
+## 1.0.0
+
+### Major Changes
+
+- b995e58: Initial stable release at `1.0.0`. All four public packages now share a unified version line via changeset `fixed` mode — a bump on any package bumps the whole group. This locks the API surface for v1 and signals semver compatibility going forward.
+
+### Patch Changes
+
+- Updated dependencies [b995e58]
+  - @fluch/signal-store@1.0.0
+
 ## 0.1.4
 
 ### Patch Changes

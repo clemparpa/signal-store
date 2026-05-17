@@ -6,7 +6,8 @@
   "include": [
     "../../packages/core/src/**/*",
     "../../packages/entities/src/**/*",
-    "../../packages/react/src/**/*"
+    "../../packages/react/src/**/*",
+    "../../packages/devtools/src/**/*"
   ],
   "exclude": [
     "../../packages/*/src/**/*.test.ts",

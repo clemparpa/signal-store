@@ -140,6 +140,9 @@ The two modes coexist; pick per store, not per app.
 **Does `useStore` accept a selector?**
 No — and on purpose. You read signals directly: `store.todos.value`, `store.user.value.name`. With `@preact/signals-react`, each read becomes a fine-grained subscription. Selectors and memoization aren't needed.
 
+**How do I inspect actions and state changes during development?**
+`@fluch/signal-store-devtools` bridges any store to the Redux DevTools browser extension. Wrap the call in a dev guard so it tree-shakes out of production. See the [DevTools guide](/signal-store/guides/devtools/).
+
 **Is it SSR-safe?**
 The Provider uses `useState` lazy init, which is SSR-compatible in theory but **not yet tested**. SSR is on the v2 roadmap.
 

@@ -31,4 +31,15 @@ describe('entityConfig', () => {
     const cfg = entityConfig<{ id: number }>();
     expect(cfg.selectId({ id: 42 })).toBe(42);
   });
+
+  it('omits sortComparer when not provided', () => {
+    const cfg = entityConfig<{ id: string }>();
+    expect('sortComparer' in cfg).toBe(false);
+  });
+
+  it('preserves sortComparer when provided', () => {
+    const cmp = (a: { id: string; n: number }, b: { id: string; n: number }) => a.n - b.n;
+    const cfg = entityConfig<{ id: string; n: number }>({ sortComparer: cmp });
+    expect(cfg.sortComparer).toBe(cmp);
+  });
 });

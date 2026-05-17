@@ -27,7 +27,10 @@ type EmptySlot = {};
  * Exposes three signals derived from the config's `collection` prefix:
  * - `<prefix>Ids` — ordered list of entity ids,
  * - `<prefix>EntityMap` — `id → entity` map,
- * - `<prefix>Entities` — computed array `ids.map(id => map[id])` (insertion order).
+ * - `<prefix>Entities` — computed array `ids.map(id => map[id])`. Insertion
+ *   order by default; if `config.sortComparer` is set, the array is sorted
+ *   by the comparator on every read (memoized via `computed`). Internal
+ *   `<prefix>Ids` order is preserved — only the derived view is sorted.
  *
  * Mutate the collection via the updater functions (`addEntity`,
  * `removeEntity`, etc.) passed to {@link patchState}. Compose multiple
@@ -56,6 +59,7 @@ export function withEntities<E, C extends string = ''>(
   const kIds = idsKey(config.collection);
   const kMap = mapKey(config.collection);
   const kEnts = entitiesKey(config.collection);
+  const cmp = config.sortComparer;
 
   return (input) => {
     const stateSignals = withState({
@@ -65,9 +69,11 @@ export function withEntities<E, C extends string = ''>(
 
     const idsSig = stateSignals[kIds] as ReadonlySignal<EntityId[]>;
     const mapSig = stateSignals[kMap] as ReadonlySignal<Record<EntityId, E>>;
-    const entitiesSig: ReadonlySignal<E[]> = computed(() =>
-      idsSig.value.map((id) => mapSig.value[id] as E),
-    );
+    const entitiesSig: ReadonlySignal<E[]> = computed(() => {
+      const arr = idsSig.value.map((id) => mapSig.value[id] as E);
+      if (cmp) arr.sort(cmp);
+      return arr;
+    });
 
     return { ...stateSignals, [kEnts]: entitiesSig } as unknown as EntityFeatureOutput<E, C>;
   };

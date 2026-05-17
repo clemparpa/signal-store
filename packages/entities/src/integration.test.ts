@@ -97,4 +97,26 @@ describe('entities integration', () => {
     expect(store.ids.value).toHaveLength(1000);
     expect(store.entities.value[999]?.id).toBe(999);
   });
+
+  it('isolates sorted and unsorted collections in the same store', () => {
+    const sortedCfg = entityConfig<Todo>({
+      sortComparer: (a, b) => a.title.localeCompare(b.title),
+    });
+    const usersCfg = entityConfig<User, 'users'>({
+      collection: 'users',
+      selectId: (u) => u.uuid,
+    });
+
+    const store = signalStore(withEntities(sortedCfg), withEntities(usersCfg));
+
+    patchState(store, addEntities([{ id: 'z', title: 'zebra', done: false }], sortedCfg));
+    patchState(store, addEntities([{ id: 'a', title: 'apple', done: false }], sortedCfg));
+    patchState(store, addEntity({ uuid: 'u2', name: 'carol' }, usersCfg));
+    patchState(store, addEntity({ uuid: 'u1', name: 'bob' }, usersCfg));
+
+    // sorted: title asc
+    expect(store.entities.value.map((t) => t.title)).toEqual(['apple', 'zebra']);
+    // unsorted: insertion order
+    expect(store.usersEntities.value.map((u) => u.name)).toEqual(['carol', 'bob']);
+  });
 });

@@ -2,7 +2,14 @@
   "$schema": "https://unpkg.com/@changesets/config@3.1.4/schema.json",
   "changelog": "@changesets/cli/changelog",
   "commit": false,
-  "fixed": [],
+  "fixed": [
+    [
+      "@fluch/signal-store",
+      "@fluch/signal-store-entities",
+      "@fluch/signal-store-react",
+      "@fluch/signal-store-devtools"
+    ]
+  ],
   "linked": [],
   "access": "public",
   "baseBranch": "main",

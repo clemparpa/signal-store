@@ -51,6 +51,18 @@ importers:
         specifier: ^0.34.5
         version: 0.34.5
     devDependencies:
+      '@fluch/signal-store':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@fluch/signal-store-devtools':
+        specifier: workspace:*
+        version: link:../../packages/devtools
+      '@fluch/signal-store-entities':
+        specifier: workspace:*
+        version: link:../../packages/entities
+      '@fluch/signal-store-react':
+        specifier: workspace:*
+        version: link:../../packages/react
       starlight-typedoc:
         specifier: ^0.22.0
         version: 0.22.0(@astrojs/starlight@0.39.2(astro@6.3.1(@types/node@25.6.2)(lightningcss@1.32.0)(rollup@4.60.3)(yaml@2.8.4))(typescript@6.0.3))(typedoc-plugin-markdown@4.11.0(typedoc@0.28.19(typescript@6.0.3)))(typedoc@0.28.19(typescript@6.0.3))

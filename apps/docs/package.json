@@ -16,6 +16,10 @@
     "sharp": "^0.34.5"
   },
   "devDependencies": {
+    "@fluch/signal-store": "workspace:*",
+    "@fluch/signal-store-devtools": "workspace:*",
+    "@fluch/signal-store-entities": "workspace:*",
+    "@fluch/signal-store-react": "workspace:*",
     "starlight-typedoc": "^0.22.0",
     "typedoc": "^0.28.19",
     "typedoc-plugin-markdown": "^4.11.0"

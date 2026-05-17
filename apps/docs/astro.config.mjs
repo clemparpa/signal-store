@@ -52,6 +52,10 @@ export default defineConfig({
             { label: 'DevTools', slug: 'guides/devtools' },
           ],
         },
+        {
+          label: 'Agent skill',
+          items: [{ label: 'AI Agent Skill', slug: 'agent-skill' }],
+        },
         typeDocSidebarGroup,
       ],
     }),

@@ -1,6 +1,6 @@
 {
   "name": "@fluch/signal-store-entities",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Entity collection helpers for @fluch/signal-store (NgRx-style addEntity/updateEntity/removeEntity updaters)",
   "license": "MIT",
   "type": "module",

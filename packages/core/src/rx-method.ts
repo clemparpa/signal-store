@@ -1,4 +1,4 @@
-import { type ReadonlySignal, Signal } from '@preact/signals-core';
+import { type ReadonlySignal, Signal, signal } from '@preact/signals-core';
 import { Observable, Subject, Subscription } from 'rxjs';
 import { getMeta, type StoreMeta } from './store-meta';
 
@@ -33,6 +33,116 @@ export function toObservable<T>(sig: Signal<T> | ReadonlySignal<T>): Observable<
     });
     return unsub;
   });
+}
+
+/**
+ * Convert an RxJS `Observable` into a Preact `ReadonlySignal`. The inverse of
+ * {@link toObservable}.
+ *
+ * Two overloads:
+ *
+ * - **Standalone**: `toSignal(source, initial)` — returns a tuple
+ *   `[ReadonlySignal<T>, dispose]` in the style of React hooks. The caller is
+ *   responsible for calling `dispose()` to release the inner subscription.
+ *   `dispose()` is idempotent (RxJS `Subscription.unsubscribe` is a no-op on
+ *   subsequent calls).
+ *
+ * - **Store-aware**: `toSignal(store, source, initial)` — returns a plain
+ *   `ReadonlySignal<T>`. The inner subscription is registered on the store's
+ *   internal cleanup, so {@link destroyStore} (or the React `<Provider>`
+ *   unmount) tears it down automatically. If the store is already destroyed
+ *   when `toSignal` is called, returns a signal at `initial` without
+ *   subscribing (silent no-op, mirroring {@link rxMethod}).
+ *
+ * Behavior shared by both variants:
+ * - `signal.value = initial` synchronously at call time, before any emission.
+ * - Each `next` from the source updates `signal.value`.
+ * - On `error`, the error is reported via `console.error` and the signal keeps
+ *   its last value — the signal never throws.
+ * - On `complete`, the signal keeps its last value and the inner subscription
+ *   is released.
+ *
+ * @example Standalone
+ * ```ts
+ * import { interval, take } from 'rxjs';
+ * import { toSignal } from '@fluch/signal-store';
+ *
+ * const [counter, disposeCounter] = toSignal(interval(100).pipe(take(3)), -1);
+ * counter.value; // -1
+ * // ...after 300ms: counter.value === 2
+ * disposeCounter(); // release the inner subscription
+ * ```
+ *
+ * @example Store-aware
+ * ```ts
+ * import { signalStore, withState, withMethods, toSignal } from '@fluch/signal-store';
+ * import { fromEvent, map } from 'rxjs';
+ *
+ * const store = signalStore(
+ *   withState({ ready: false }),
+ *   withMethods((s) => ({
+ *     bindWidth: () => {
+ *       const width = toSignal(
+ *         s,
+ *         fromEvent(window, 'resize').pipe(map(() => window.innerWidth)),
+ *         window.innerWidth,
+ *       );
+ *       // width.value reflects the latest innerWidth; cleanup is automatic
+ *       return width;
+ *     },
+ *   })),
+ * );
+ * ```
+ */
+export function toSignal<T>(
+  source: Observable<T>,
+  initial: T,
+): readonly [ReadonlySignal<T>, () => void];
+export function toSignal<T>(store: object, source: Observable<T>, initial: T): ReadonlySignal<T>;
+export function toSignal<T>(
+  storeOrSource: object | Observable<T>,
+  sourceOrInitial: Observable<T> | T,
+  maybeInitial?: T,
+): ReadonlySignal<T> | readonly [ReadonlySignal<T>, () => void] {
+  if (storeOrSource instanceof Observable) {
+    const source = storeOrSource;
+    const initial = sourceOrInitial as T;
+    const sig = signal<T>(initial);
+    const sub = source.subscribe({
+      next: (v) => {
+        sig.value = v;
+      },
+      error: (err) => {
+        console.error('[toSignal] Observable errored:', err);
+      },
+    });
+    return [sig as ReadonlySignal<T>, () => sub.unsubscribe()] as const;
+  }
+
+  const store = storeOrSource;
+  const source = sourceOrInitial as Observable<T>;
+  const initial = maybeInitial as T;
+  const meta = getMeta(store);
+  if (meta === undefined) {
+    throw new Error('toSignal must be called with a signalStore(...) instance');
+  }
+
+  const sig = signal<T>(initial);
+  if (meta.cleanup.closed) {
+    return sig as ReadonlySignal<T>;
+  }
+
+  const sub = source.subscribe({
+    next: (v) => {
+      sig.value = v;
+    },
+    error: (err) => {
+      console.error('[toSignal] Observable errored:', err);
+    },
+  });
+  registerOnCleanup(meta, sub);
+
+  return sig as ReadonlySignal<T>;
 }
 
 /**

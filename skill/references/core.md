@@ -231,7 +231,37 @@ const sum$ = combineLatest([toObservable(a), toObservable(b)]).pipe(
 );
 ```
 
-`toSignal(observable, initial)` (inverse) is **post-v2** — not shipped yet.
+### `toSignal(source, initial)` — Observable → Signal
+
+Inverse of `toObservable`. Two overloads:
+
+```ts
+// Standalone — [sig, dispose] tuple, caller owns the lifetime
+toSignal<T>(source: Observable<T>, initial: T): readonly [ReadonlySignal<T>, () => void]
+
+// Store-aware — subscription auto-cleaned up on destroyStore
+toSignal<T>(store: object, source: Observable<T>, initial: T): ReadonlySignal<T>
+```
+
+```ts
+import { interval, take } from 'rxjs';
+import { toSignal } from '@fluch/signal-store';
+
+// Standalone — useState-style tuple
+const [counter, disposeCounter] = toSignal(interval(100).pipe(take(3)), -1);
+counter.value;     // -1, then 0, 1, 2
+disposeCounter();  // release inner sub; idempotent
+
+// Store-aware (inside withMethods, store-bound cleanup)
+const width = toSignal(store, fromEvent(window, 'resize').pipe(map(() => window.innerWidth)), window.innerWidth);
+// no dispose returned — destroyStore (or React unmount) tears it down
+```
+
+- `signal.value = initial` synchronously at call time.
+- `next` → updates the signal.
+- `error` → `console.error`, signal keeps last value (never throws).
+- `complete` → signal keeps last value, inner sub released.
+- Store-aware on a destroyed store: returns signal at `initial` without subscribing.
 
 ## Internal subpath
 

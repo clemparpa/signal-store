@@ -164,7 +164,52 @@ const sum$ = combineLatest([toObservable(a), toObservable(b)]).pipe(
 
 `toObservable(sig)` emits the current value synchronously on subscribe, then every change. Unsubscribing releases the underlying signal subscription.
 
-`toSignal(observable, initial)` (the inverse) is not shipped yet — managing cleanup for an infinite source requires the same kind of store binding as `rxMethod`. Open an issue if you hit the use case.
+## `toSignal(source, initial)` — bridge an Observable into a signal
+
+The inverse direction: wrap an `Observable<T>` so it reads like a Preact signal. Useful when consuming streams in JSX (via `@preact/signals-react`), in `computed`, or alongside other signals.
+
+`toSignal` has two overloads — pick the one that matches the lifetime you want.
+
+### Standalone
+
+```ts
+import { interval, take } from 'rxjs';
+import { toSignal } from '@fluch/signal-store';
+
+const [counter, disposeCounter] = toSignal(interval(100).pipe(take(3)), -1);
+counter.value; // -1 synchronously, then 0, 1, 2 as the source ticks
+disposeCounter(); // release the inner subscription
+```
+
+The standalone variant returns a `[ReadonlySignal<T>, dispose]` tuple — the same shape as React's `useState`. The caller owns the lifetime. `dispose()` is idempotent (RxJS `Subscription.unsubscribe` is a no-op on the second call).
+
+### Store-aware
+
+```ts
+import { fromEvent, map } from 'rxjs';
+
+withMethods((store) => ({
+	bindWidth: () => {
+		const width = toSignal(
+			store,
+			fromEvent(window, 'resize').pipe(map(() => window.innerWidth)),
+			window.innerWidth,
+		);
+		return { width };
+	},
+}));
+```
+
+Pass the store as the first argument and the subscription is registered on its internal cleanup — `destroyStore` (or the React `<Provider>` unmount) tears it down automatically. The store-aware overload returns the signal directly (no tuple) since cleanup is handled by the store.
+
+If the store is already destroyed when `toSignal(store, ...)` is called, it returns a signal at `initial` without subscribing — silent no-op, same semantics as `rxMethod` post-destroy.
+
+### Error & complete
+
+- **`error`** → reported via `console.error`, the signal keeps its last value. The signal never throws.
+- **`complete`** → the signal keeps its last value, the inner subscription is released.
+
+This matters because Observable errors that would normally be re-thrown become observable side effects — silence them by `console` filtering in tests, or wrap your source with `catchError` upstream if you need richer handling.
 
 ## Gotchas
 
@@ -177,5 +222,7 @@ const sum$ = combineLatest([toObservable(a), toObservable(b)]).pipe(
 
 - `rxMethod<Input>(store, generator)` — returns a method `(input: Input | Signal<Input> | Observable<Input>) => Subscription`.
 - `toObservable(signal)` — returns `Observable<T>`; emits current value on subscribe, then every change.
+- `toSignal(source, initial)` — standalone; returns `readonly [ReadonlySignal<T>, () => void]`.
+- `toSignal(store, source, initial)` — store-aware; returns `ReadonlySignal<T>`; cleanup is automatic on `destroyStore`.
 
 See the auto-generated [API reference](/signal-store/api/core/src/functions/rxmethod/) for full type signatures.

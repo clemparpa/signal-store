@@ -1,10 +1,13 @@
 import { patchState, signalStore } from '@fluch/signal-store';
 import { describe, expect, it } from 'vitest';
 import { entityConfig } from './entity-config';
+import { addEntity } from './updaters/add';
+import { updateEntity } from './updaters/update';
 import { withEntities } from './with-entities';
 
 type Todo = { id: string; title: string; done: boolean };
 type User = { uuid: string; name: string };
+type Task = { id: string; priority: number; title: string };
 
 describe('withEntities', () => {
   it('adds ids, entityMap and entities to the store (mono-collection)', () => {
@@ -67,5 +70,56 @@ describe('withEntities', () => {
     const cfg = entityConfig<Todo>();
     const feature = withEntities(cfg);
     expect(() => feature({})).toThrow(/signalStore/);
+  });
+
+  describe('sortComparer', () => {
+    it('preserves insertion order when no sortComparer is set', () => {
+      const cfg = entityConfig<Task>();
+      const store = signalStore(withEntities(cfg));
+
+      patchState(store, addEntity({ id: 'c', priority: 3, title: 'c' }, cfg));
+      patchState(store, addEntity({ id: 'a', priority: 1, title: 'a' }, cfg));
+      patchState(store, addEntity({ id: 'b', priority: 2, title: 'b' }, cfg));
+
+      expect(store.entities.value.map((t) => t.id)).toEqual(['c', 'a', 'b']);
+    });
+
+    it('returns entities sorted by the comparator on read', () => {
+      const cfg = entityConfig<Task>({ sortComparer: (a, b) => a.priority - b.priority });
+      const store = signalStore(withEntities(cfg));
+
+      patchState(store, addEntity({ id: 'c', priority: 3, title: 'c' }, cfg));
+      patchState(store, addEntity({ id: 'a', priority: 1, title: 'a' }, cfg));
+      patchState(store, addEntity({ id: 'b', priority: 2, title: 'b' }, cfg));
+
+      expect(store.entities.value.map((t) => t.priority)).toEqual([1, 2, 3]);
+      // internal ids order is untouched
+      expect(store.ids.value).toEqual(['c', 'a', 'b']);
+    });
+
+    it('re-sorts when a new entity is inserted', () => {
+      const cfg = entityConfig<Task>({ sortComparer: (a, b) => a.priority - b.priority });
+      const store = signalStore(withEntities(cfg));
+
+      patchState(store, addEntity({ id: 'a', priority: 1, title: 'a' }, cfg));
+      patchState(store, addEntity({ id: 'c', priority: 3, title: 'c' }, cfg));
+      expect(store.entities.value.map((t) => t.priority)).toEqual([1, 3]);
+
+      patchState(store, addEntity({ id: 'b', priority: 2, title: 'b' }, cfg));
+      expect(store.entities.value.map((t) => t.priority)).toEqual([1, 2, 3]);
+    });
+
+    it('re-sorts when an entity update mutates the sort key', () => {
+      const cfg = entityConfig<Task>({ sortComparer: (a, b) => a.priority - b.priority });
+      const store = signalStore(withEntities(cfg));
+
+      patchState(store, addEntity({ id: 'a', priority: 1, title: 'a' }, cfg));
+      patchState(store, addEntity({ id: 'b', priority: 2, title: 'b' }, cfg));
+      patchState(store, addEntity({ id: 'c', priority: 3, title: 'c' }, cfg));
+      expect(store.entities.value.map((t) => t.id)).toEqual(['a', 'b', 'c']);
+
+      patchState(store, updateEntity({ id: 'a', changes: { priority: 99 } }, cfg));
+      expect(store.entities.value.map((t) => t.id)).toEqual(['b', 'c', 'a']);
+    });
   });
 });

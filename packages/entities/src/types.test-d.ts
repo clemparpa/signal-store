@@ -52,4 +52,16 @@ describe('entities — type-level', () => {
     patchState(store, setEntity({ id: 'a', title: 'a', done: false }, todosCfg));
     patchState(store, updateEntity({ id: 'a', changes: { done: true } }, todosCfg));
   });
+
+  it('types sortComparer on the entity type and keeps it optional', () => {
+    // optional: no sortComparer is accepted
+    const noCmp = entityConfig<Todo>();
+    expectTypeOf(noCmp.sortComparer).toEqualTypeOf<((a: Todo, b: Todo) => number) | undefined>();
+
+    // accepts a comparator typed on Todo
+    entityConfig<Todo>({ sortComparer: (a, b) => a.title.localeCompare(b.title) });
+
+    // @ts-expect-error — comparator must accept the entity type, not a number
+    entityConfig<Todo>({ sortComparer: (a: number, b: number) => a - b });
+  });
 });

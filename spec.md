@@ -18,7 +18,7 @@ Lib React de state management inspirée de **NgRx SignalStore** (la feature `@ng
 | State shape | **Un signal par clé top-level** de l'état | Réactivité fine-grained gratuite, pas de selector mémoïsé à écrire |
 | Instanciation par défaut | Singleton module (option A) | Mappe sur `providedIn: 'root'` de NgRx |
 | Instanciation alternative | Provider/Context (option B) dans package séparé | Pour scoping par sous-arbre |
-| Entities | Multi-collection dès v1, ID selector custom, **pas de sort** | Sort se fait via `withComputed` |
+| Entities | Multi-collection dès v1, ID selector custom, **pas de sort en v1 ; `sortComparer` opt-in livré en v2** | Sort dérivé à la lecture (cf. §4.6) |
 | Immutabilité | `Object.freeze` en dev sur l'état | Catch les mutations directes |
 | Méthodes v1 | Synchrone recommandé ; les méthodes async marchent mais non gérées | Le store ne tracke pas la `Promise`, ne cancel rien — `rxMethod` v2 pour pipelines gérés |
 | Architecture interne | Source brute via rxjs `BehaviorSubject` + facade signaux (cf. §5.5) | Permet devtools/persistence/time-travel/hooks v2 sans casser l'API publique |
@@ -178,10 +178,13 @@ L'API entities repose sur un **builder typé** `entityConfig()` capturé en clos
 function entityConfig<E, C extends string = ''>(opts?: {
   collection?: C;                                 // default: ''
   selectId?: (entity: E) => string | number;      // default: e => e.id
+  sortComparer?: (a: E, b: E) => number;          // optional, opt-in tri
 }): EntityConfig<E, C>;
 ```
 
 À capturer dans une `const` top-level — c'est cette closure que les updaters et `withEntities` reçoivent.
+
+Quand `sortComparer` est fourni, le computed `<C>Entities` retourne le tableau trié à chaque lecture (mémoïsé par `computed`). L'ordre interne de `<C>Ids` est inchangé — seule la vue dérivée est triée. Le comparator doit être pur (fonction de `a` et `b` uniquement) ; pour un tri dynamique, faire un `withComputed` dédié.
 
 #### `withEntities(cfg)`
 
@@ -195,7 +198,7 @@ Ajoute au store, **clés dérivées du préfixe `C`** :
 
 - `<C>Ids: ReadonlySignal<EntityId[]>` (ou `ids` si `C = ''`) — ordre d'insertion
 - `<C>EntityMap: ReadonlySignal<Record<EntityId, E>>` (ou `entityMap`) — lookup O(1)
-- `<C>Entities: ReadonlySignal<E[]>` (ou `entities`) — computed `ids.map(id => map[id])`
+- `<C>Entities: ReadonlySignal<E[]>` (ou `entities`) — computed `ids.map(id => map[id])`, trié par `cfg.sortComparer` si défini
 
 Plusieurs `withEntities` dans le même `signalStore` = OK tant que les `collection` diffèrent (collision détectée par le check de §4.1).
 
@@ -487,7 +490,7 @@ State interne par collection :
 
 (Pour mono-collection avec `C = ''` : juste `ids` et `entityMap`. Les noms sont dérivés au type-level via `IdsKey<C>` / `MapKey<C>` / `EntitiesKey<C>` — cf. [packages/entities/src/types.ts](packages/entities/src/types.ts).)
 
-`<C>Entities` est un `computed` qui mappe `<C>Ids → <C>EntityMap[id]`. **Important** : la dépendance computed se déclenche quand `<C>Ids` OU `<C>EntityMap` change, donc tout patch d'entity → re-render des consommateurs de `<C>Entities`. Pour une réactivité plus fine, le consommateur peut faire son propre `computed` filtré.
+`<C>Entities` est un `computed` qui mappe `<C>Ids → <C>EntityMap[id]`. Si `cfg.sortComparer` est défini, un `.sort(cmp)` in-place sur le tableau fresh issu de `.map(...)` est appliqué avant retour — pas de copie supplémentaire, pas de mutation du `<C>Ids` interne. **Important** : la dépendance computed se déclenche quand `<C>Ids` OU `<C>EntityMap` change, donc tout patch d'entity → re-render des consommateurs de `<C>Entities`. Pour une réactivité plus fine, le consommateur peut faire son propre `computed` filtré.
 
 **Comment l'updater connaît `selectId` et le préfixe `collection`** : par **closure**, pas par registre interne. Le consommateur capture le cfg dans une const top-level, et le passe explicitement à `withEntities` et à chaque updater :
 
@@ -856,7 +859,7 @@ V1 : URL GitHub Pages par défaut (`clemparpa.github.io/signal-store` ou équiva
 - **✅ `withHooks({ onInit, onDestroy })`** : **livré dans v2 (branche `feat/with-hooks`, cf. §4.8)**. `onInit` drainé à la fin de `signalStore(...)` (voit le store complet). `onDestroy` enregistré sur `cleanup: Subscription` du §5.5 en LIFO (déclenché par `destroyStore` ou automatiquement à l'unmount Provider). Premier chantier v2 — c'est un pré-requis ergonomique pour `rxMethod` (teardown des pipelines) et `devtools` (registration au init).
 - **✅ `rxMethod` + `toObservable`** : **livré dans v2 (branche `feat/rx-method`, cf. §4.9, §4.10)**. Prend `(store, generator)` et expose une méthode acceptant scalaire / `Signal<T>` / `Observable<T>`. Pipeline subscribed une fois sur un `Subject<Input>` central — opérateurs stateful corrects entre invocations. Auto-cleanup via `meta.cleanup` (idem `withHooks.onDestroy`). Post-destroy : silent no-op. **Décision livraison vs spec initiale** : pas de package séparé `@fluch/signal-store-rxjs`. Justification d'origine (= laisser le core rxjs-free) caduque depuis le refactor §5.5 qui a fait `rxjs` peer dep obligatoire du core ; séparer ne ferait plus rien gagner (rxjs déjà payé côté consommateur, tree-shake gère le code-size). `rxMethod` vit donc dans `@fluch/signal-store`, à côté de `withMethods`. `toSignal(observable, initial)` (inverse) reporté — cleanup non-trivial pour Observable infini, pas de cas d'usage exprimé.
 - **✅ DevTools** : **livré dans v2 (branche `feat/devtools`, cf. §4.11)**. Sub à `mutations$` pour relayer chaque commit (nom dérivé de la stack via parsing V8/SpiderMonkey, fallback `STATE_UPDATE`), lit `meta.state$.value` pour le snapshot post-commit. Pas de monkey-patch de `patchState`. **Décision livraison vs spec initiale** : package séparé conservé — contrairement à `rxMethod`, devtools est strictement dev-only et le tree-shake d'un guard `if (DEV) connectDevtools(...)` élimine entièrement l'import en prod. Le bridge accède à `getMeta` via un nouveau subpath `@fluch/signal-store/internal` (convention Vue/Vite) plutôt que d'élargir la surface publique du core. **Mode** : monitor-only — time travel (`JUMP_TO_STATE`/`JUMP_TO_ACTION`) et dispatcher (actions UI → store) reportés ; exigent une registry d'actions + un historique des deltas, design non trivial.
-- **Sort comparator entities** : option `sortComparer` ajoutée à `entityConfig`. Auto-tri à chaque insert/update. Implémentation : le `<C>Entities` computed applique le `sortComparer` sur le `<C>Ids.map(id => map[id])` si présent dans le cfg.
+- **✅ Sort comparator entities** : **livré dans v2 (branche `feat/entities-sort`, cf. §4.6)**. Option `sortComparer?: (a: E, b: E) => number` ajoutée à `entityConfig`. Le `<C>Entities` computed applique `.sort(cmp)` in-place sur le tableau fresh issu de `<C>Ids.map(id => <C>EntityMap[id])` quand le comparator est défini ; l'ordre interne de `<C>Ids` est inchangé. Tri dérivé (pas de mutation state), mémoïsé par `computed`, opt-in et non-breaking. **Décision livraison vs spec initiale** : tri à la lecture plutôt qu'au moment de l'insertion/update — pas besoin de propager le comparator aux updaters, pas de registry runtime, signature des updaters inchangée. Le coût `O(n log n)` par mutation est borné (1 sort par patch, mémoïsé entre lectures).
 
 ## 11. Livraison v1 — historique
 

@@ -132,9 +132,29 @@ Both add an entity if its id is new. They diverge when the id already exists:
 
 If you don't know whether the id exists yet (e.g. loading from a server), use `setEntity` or `setEntities` — they are idempotent. Use `addEntity` to guarantee you never overwrite local state.
 
-## Filtering and sorting
+## Sorting
 
-`@fluch/signal-store-entities` does not bake in `sortComparer`. Derive sorted or filtered views with `withComputed`:
+Pass a `sortComparer` to `entityConfig` and `<C>Entities` returns a sorted view. The internal `<C>Ids` order is preserved — only the derived signal is sorted, on every read, memoized by the underlying `computed`.
+
+```ts
+type Todo = { id: string; title: string; done: boolean; dueDate: number };
+
+const todosCfg = entityConfig<Todo>({
+	sortComparer: (a, b) => a.dueDate - b.dueDate,
+});
+
+const store = signalStore(withEntities(todosCfg));
+
+store.entities.value; // sorted by dueDate, ascending
+```
+
+The comparator must depend only on `a` and `b`. Capturing an external reactive value (e.g. a `Signal` holding the sort direction) won't make the view re-sort when that value changes — for a dynamic sort, build it yourself in `withComputed`.
+
+`Array.prototype.sort` is stable since ES2019, so equal items keep their insertion order — no need for a tie-breaker on the id.
+
+### Filtering and derived views
+
+`sortComparer` is opt-in and intentionally narrow. For filtering, grouping, or any non-total ordering, derive a `withComputed` from `entities`:
 
 ```ts
 import { computed } from '@preact/signals-core';
@@ -148,8 +168,6 @@ const todos = signalStore(
 	})),
 );
 ```
-
-This keeps the entity feature minimal and the derivation cost explicit at the point of use.
 
 ## Custom id selectors
 

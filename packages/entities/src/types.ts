@@ -10,10 +10,15 @@ export type EntityId = string | number;
  * Build via {@link entityConfig} — never assemble by hand. The literal
  * `collection` is what makes the keys exposed on the store (`<C>Ids`,
  * `<C>EntityMap`, `<C>Entities`) typed and unique per collection.
+ *
+ * When `sortComparer` is provided, `<C>Entities` returns the array sorted
+ * by the comparator on every read (memoized via `computed`). Internal
+ * `ids` order is preserved — only the derived view is sorted.
  */
 export interface EntityConfig<E, C extends string = ''> {
   readonly collection: C;
   readonly selectId: (entity: E) => EntityId;
+  readonly sortComparer?: (a: E, b: E) => number;
 }
 
 /**

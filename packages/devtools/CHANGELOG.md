@@ -1,5 +1,12 @@
 # @fluch/signal-store-devtools
 
+## 1.1.0
+
+### Patch Changes
+
+- Updated dependencies [3f04261]
+  - @fluch/signal-store@1.1.0
+
 ## 1.0.0
 
 ### Major Changes

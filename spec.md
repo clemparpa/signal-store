@@ -35,6 +35,7 @@ Lib React de state management inspirée de **NgRx SignalStore** (la feature `@ng
 ├── .changeset/
 ├── apps/
 │   └── docs/                          → site Starlight (privé, non publié)
+├── skill/                             → SKILL.md format agentskills.io (cf. §11)
 └── packages/
     ├── core/                          → @fluch/signal-store
     │   peer: @preact/signals-core, rxjs
@@ -366,7 +367,7 @@ count.value = 1; // → 1
 sub.unsubscribe();
 ```
 
-`toSignal(observable, initial)` (inverse) **n'est pas exposé en v2**. Le cleanup d'un Observable infini exigerait soit `toSignal(store, obs$, initial)` (verbeux pour un cas marginal), soit un nouveau pattern de registration — différé tant qu'il n'y a pas de cas d'usage exprimé.
+`toSignal(observable, initial)` (inverse) est exposé **post-v2** (cf. §11). Signature de base hors-store retournant un `ReadonlySignal<T> & { dispose(): void }`, surcharge store-aware qui rattache la sub à `meta.cleanup` pour auto-libération via `destroyStore`.
 
 ### 4.11. `connectDevtools(store, options?)` (package `@fluch/signal-store-devtools`)
 
@@ -795,8 +796,9 @@ Sidebar Starlight (déclarée dans `astro.config.mjs`) :
 
 1. **Getting started** — installation, premier store
 2. **Guides** — vide en v1, structure prête à recevoir blog/tutoriaux
-3. **Packages** — une page par package (core, entities, react), exemples + surface API
-4. **API Reference** — auto-généré par `starlight-typedoc`, non éditable manuellement
+3. **Cookbook** — recettes par cas d'usage (post-v2, cf. §11)
+4. **Packages** — une page par package (core, entities, react), exemples + surface API
+5. **API Reference** — auto-généré par `starlight-typedoc`, non éditable manuellement
 
 ### 9.3. TypeDoc
 
@@ -851,9 +853,13 @@ V1 : URL GitHub Pages par défaut (`clemparpa.github.io/signal-store` ou équiva
 
 **EN par défaut** (public international). L'i18n Starlight (FR notamment) sera évalué après v1 selon traffic et retours.
 
-## 10. Hors scope v1 — design préliminaire pour v2
+### 9.8. Skill AgentSkills
 
-À documenter mais NE PAS implémenter (sauf le premier item qui est ✅ déjà livré dans v1) :
+Un `SKILL.md` au format [agentskills.io](https://agentskills.io/) est distribué dans le repo (dossier `skill/`, cf. §3) pour que les agents IA (Claude Code, Cursor, etc.) consomment la lib en autonomie : install, API minimale, exemples. La doc Starlight ajoute une page qui pointe sur le skill et explique son téléchargement. Détail livraison cf. §11.
+
+## 10. v2 — chantiers livrés
+
+Section historique. Items conçus comme « hors scope v1 » et tous livrés dans la série v2.x — le premier item rattrapé en fin de v1, les suivants au fil des branches `feat/with-hooks`, `feat/rx-method`, `feat/devtools`, `feat/entities-sort` :
 
 - **✅ Refactor archi interne — source brute + signaux en facade** : **livré dans v1** (cf. §5.5). Initialement prévu en tête de v2, fait dans le périmètre v1 parce que le coût de migration grossissait avec chaque test ajouté. L'API publique (`store.count.value`, `patchState(store, ...)`) n'a pas bougé. Les autres items v2 ci-dessous s'appuient sur cette base.
 - **✅ `withHooks({ onInit, onDestroy })`** : **livré dans v2 (branche `feat/with-hooks`, cf. §4.8)**. `onInit` drainé à la fin de `signalStore(...)` (voit le store complet). `onDestroy` enregistré sur `cleanup: Subscription` du §5.5 en LIFO (déclenché par `destroyStore` ou automatiquement à l'unmount Provider). Premier chantier v2 — c'est un pré-requis ergonomique pour `rxMethod` (teardown des pipelines) et `devtools` (registration au init).
@@ -861,7 +867,19 @@ V1 : URL GitHub Pages par défaut (`clemparpa.github.io/signal-store` ou équiva
 - **✅ DevTools** : **livré dans v2 (branche `feat/devtools`, cf. §4.11)**. Sub à `mutations$` pour relayer chaque commit (nom dérivé de la stack via parsing V8/SpiderMonkey, fallback `STATE_UPDATE`), lit `meta.state$.value` pour le snapshot post-commit. Pas de monkey-patch de `patchState`. **Décision livraison vs spec initiale** : package séparé conservé — contrairement à `rxMethod`, devtools est strictement dev-only et le tree-shake d'un guard `if (DEV) connectDevtools(...)` élimine entièrement l'import en prod. Le bridge accède à `getMeta` via un nouveau subpath `@fluch/signal-store/internal` (convention Vue/Vite) plutôt que d'élargir la surface publique du core. **Mode** : monitor-only — time travel (`JUMP_TO_STATE`/`JUMP_TO_ACTION`) et dispatcher (actions UI → store) reportés ; exigent une registry d'actions + un historique des deltas, design non trivial.
 - **✅ Sort comparator entities** : **livré dans v2 (branche `feat/entities-sort`, cf. §4.6)**. Option `sortComparer?: (a: E, b: E) => number` ajoutée à `entityConfig`. Le `<C>Entities` computed applique `.sort(cmp)` in-place sur le tableau fresh issu de `<C>Ids.map(id => <C>EntityMap[id])` quand le comparator est défini ; l'ordre interne de `<C>Ids` est inchangé. Tri dérivé (pas de mutation state), mémoïsé par `computed`, opt-in et non-breaking. **Décision livraison vs spec initiale** : tri à la lecture plutôt qu'au moment de l'insertion/update — pas besoin de propager le comparator aux updaters, pas de registry runtime, signature des updaters inchangée. Le coût `O(n log n)` par mutation est borné (1 sort par patch, mémoïsé entre lectures).
 
-## 11. Livraison v1 — historique
+## 11. Roadmap post-v2 — design préliminaire
+
+Section vivante. Items à concevoir/livrer après la release `1.0.0` unifiée. L'ordre actuel reflète la priorité décidée 2026-05-17 (versioning d'abord, puis surface agent, puis surface API, puis surface doc).
+
+- **Release `1.0.0` unifiée** : passage des 4 packages publics (`@fluch/signal-store`, `-entities`, `-react`, `-devtools`) à un versioning commun via `changeset.fixed`. Aujourd'hui versions désalignées (core `0.5.1`, entities `0.2.0`, react `0.1.4`, devtools `0.1.0`) — coûteux à suivre côté consommateur (matrice de compat). Décision : `"fixed": [["@fluch/signal-store", "@fluch/signal-store-entities", "@fluch/signal-store-react", "@fluch/signal-store-devtools"]]` dans `.changeset/config.json` + un changeset `major` qui aligne tous les packages sur `1.0.0`. Tradeoff accepté : un fix sur `devtools` bumpe aussi les 3 autres sans diff utile — coût acceptable pour une matrice cohérente (`^1.0.0` partout). Pas de breaking API — le bump major signale « stable, semver garanti ».
+
+- **Skill AgentSkills** : distribution d'un `SKILL.md` au format [agentskills.io](https://agentskills.io/) pour que les agents IA (Claude Code, Cursor, etc.) consomment la lib en autonomie. Dossier `skill/` racine (cf. §3) avec `SKILL.md` < 500 lignes (install, API minimale `signalStore/withState/withComputed/withMethods/patchState`, 1 exemple complet) + `references/` (un fichier cheat-sheet par package + recettes). Frontmatter `name: fluch-signal-store` + `description` 200-300 chars. Distribution double : commit dans le repo (raw GitHub consommable directement) + page dédiée dans la doc Starlight (cf. §9.8) qui explique le format et le téléchargement. Pas de validation `skills-ref` au CI v1 — possible plus tard. Choix du format AgentSkills standard plutôt que Claude-spécifique : ouverture multi-agent.
+
+- **`toSignal(observable, initial)`** : inverse de `toObservable` (cf. §4.10). Signature de base hors-store : `toSignal<T>(source: Observable<T>, initial: T): ReadonlySignal<T> & { dispose(): void }` — le caller libère manuellement la sub. Surcharge store-aware : `toSignal<T>(store: object, source: Observable<T>, initial: T): ReadonlySignal<T>` — sub ajoutée à `meta.cleanup`, auto-libérée par `destroyStore` ou à l'unmount du Provider React, donc pas besoin de `.dispose()` sur cette variante (ferait double-dispose). Vit dans `@fluch/signal-store` à côté de `toObservable` (rxjs est déjà peer dep du core depuis §5.5). Comportement : `signal.value = initial` au call, chaque `next` push une nouvelle valeur. `error` Observable → `console.error` dev-only, le signal garde la dernière valeur (Observables infinis dans la lib ne devraient pas erroriser ; on n'introduit pas un `errorSignal` séparé). `complete` → on garde la dernière valeur et on libère la sub interne ; `dispose()` reste idempotent.
+
+- **Doc cookbook** : nouvelle section `cookbook/` dans Starlight (cf. §9.2), recettes par cas d'usage pour combler le gap entre les guides « API » et l'usage réel. Recettes envisagées : loading state + error state autour d'`rxMethod`, optimistic update + rollback, form sync (input contrôlé ↔ store), pagination (cursor + offset), hydration côté SSR / restore from localStorage, multi-store composition, selectors dérivés complexes (`withComputed` chaînés). Pas de playground StackBlitz embedé — lib trop petite pour justifier le poids du widget ; lien GitHub vers un repo d'exemples suffira. Sidebar Starlight gagne une entrée `Cookbook` entre `Guides` et `Packages`.
+
+## 12. Livraison v1 — historique
 
 v1.0.0 publiée le **2026-05-12** (`@fluch/signal-store@0.3.1`, `@fluch/signal-store-entities@0.1.1`, `@fluch/signal-store-react@0.1.1`). Items cochés au moment de la livraison.
 

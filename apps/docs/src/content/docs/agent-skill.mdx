@@ -1,0 +1,76 @@
+---
+title: AI Agent Skill
+description: Drop-in SKILL.md for Claude Code, Cursor and other AI agents — install and use @fluch/signal-store in autonomy.
+---
+
+`@fluch/signal-store` ships a [SKILL.md](https://agentskills.io/) in the repo so that AI coding agents (Claude Code, Cursor, Continue, Cline, and anything else that accepts a markdown context) can understand the library without you copy-pasting docs into their context.
+
+The skill is **agent-agnostic** — it's a small markdown bundle, not a Claude-specific or Cursor-specific format. Any agent that reads markdown can use it.
+
+## Download
+
+Direct raw URLs — no install, just fetch:
+
+| File | URL |
+|---|---|
+| Entry point | [`skill/SKILL.md`](https://raw.githubusercontent.com/clemparpa/signal-store/main/skill/SKILL.md) |
+| Core cheat-sheet | [`skill/references/core.md`](https://raw.githubusercontent.com/clemparpa/signal-store/main/skill/references/core.md) |
+| Entities cheat-sheet | [`skill/references/entities.md`](https://raw.githubusercontent.com/clemparpa/signal-store/main/skill/references/entities.md) |
+| React Provider cheat-sheet | [`skill/references/react.md`](https://raw.githubusercontent.com/clemparpa/signal-store/main/skill/references/react.md) |
+| DevTools cheat-sheet | [`skill/references/devtools.md`](https://raw.githubusercontent.com/clemparpa/signal-store/main/skill/references/devtools.md) |
+
+The full source lives under [`skill/`](https://github.com/clemparpa/signal-store/tree/main/skill) on GitHub.
+
+## What's inside
+
+```
+skill/
+├── SKILL.md            ← entry point — install, core API, one complete example
+└── references/
+    ├── core.md         ← signalStore, withState/Computed/Methods, patchState, withHooks, rxMethod, toObservable, destroyStore
+    ├── entities.md     ← entityConfig, withEntities, every updater, multi-collection, sortComparer
+    ├── react.md        ← createStoreContext (Provider + useStore), lifecycle, factory props
+    └── devtools.md     ← connectDevtools, action naming, dev-only guard
+```
+
+`SKILL.md` is the entry point — frontmatter (`name` + `description`), install, the five core primitives, one complete example. Roughly 500 lines, intentionally tight.
+
+Each `references/*.md` is a cheat-sheet covering one package or topic — read on demand when the agent needs depth on entities, async pipelines, React Provider, or DevTools.
+
+## Use with Claude Code
+
+[Anthropic AgentSkills](https://docs.anthropic.com/en/docs/build-with-claude/claude-code-agent-skills) ship as a `SKILL.md` file plus optional `references/` and `scripts/` directories. Drop the bundle into your project under `.claude/skills/fluch-signal-store/` (or your global skills directory) — Claude Code picks it up automatically.
+
+A quick fetch via shell:
+
+```sh
+# In your project root
+mkdir -p .claude/skills/fluch-signal-store/references
+curl -o .claude/skills/fluch-signal-store/SKILL.md \
+  https://raw.githubusercontent.com/clemparpa/signal-store/main/skill/SKILL.md
+for f in core entities react devtools; do
+  curl -o ".claude/skills/fluch-signal-store/references/$f.md" \
+    "https://raw.githubusercontent.com/clemparpa/signal-store/main/skill/references/$f.md"
+done
+```
+
+## Use with Cursor, Continue, Cline, …
+
+Any agent that accepts a markdown context file can consume `SKILL.md` directly. Two integration patterns:
+
+- **Project-scoped**: drop `SKILL.md` (and `references/`) into your repo. Most agents will index it as part of the project context.
+- **Global rule / instruction**: paste the URL of `SKILL.md` (or its contents) into the agent's global rules / custom instructions panel.
+
+The `references/` files are designed to be loaded on demand — the agent doesn't need them all in context at once. Most tasks fit inside `SKILL.md` alone.
+
+## Why ship a skill?
+
+The Starlight docs you're reading right now are written for humans — they include prose explanations, design rationale, "why" sections. An agent reading them spends tokens on context it doesn't need.
+
+`SKILL.md` and the `references/` are the same surface, condensed: signatures, one example per primitive, gotchas inline. An agent can produce correct code from them with much less context. The format is a [public convention](https://agentskills.io/) — not Anthropic-specific.
+
+## Versioning
+
+The skill lives in the main repo branch and reflects the latest published version of `@fluch/signal-store@^1.0.0`. The four `@fluch/signal-store-*` packages share a unified version line (changeset `fixed` mode) — if the skill says a feature exists, it exists across all four packages on the same version range.
+
+If you pin to an older major in the future, fetch the skill from the matching git tag instead of `main`.

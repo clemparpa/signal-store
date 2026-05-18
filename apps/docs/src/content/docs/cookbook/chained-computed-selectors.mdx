@@ -1,0 +1,137 @@
+---
+title: Chained derived selectors with withComputed
+description: Build layered, memoized derived state — selectors that depend on other selectors — using withComputed and Preact computed, with no recompute when inputs are unchanged.
+---
+
+Derived state reads best in layers: a base selector, then selectors built on top of
+it, each memoized so an unrelated change doesn't recompute the whole tree.
+`withComputed` plus Preact `computed` gives you that for free — no selector
+factories, no manual memo dependencies.
+
+Reach for it when you have:
+
+- a list that's filtered, then sorted, then paginated;
+- aggregate counts or flags derived from a derived view;
+- a UI where one input (e.g. sort order) should recompute only part of the chain.
+
+## Quick start
+
+```ts
+import { signalStore, withState, withComputed } from '@fluch/signal-store';
+import { computed } from '@preact/signals-core';
+
+type Todo = { id: string; title: string; done: boolean };
+
+export const store = signalStore(
+  withState({
+    todos: [] as Todo[],
+    filter: 'all' as 'all' | 'active' | 'done',
+    sortBy: 'title' as 'title' | 'id',
+  }),
+  withComputed(({ todos, filter, sortBy }) => {
+    const visible = computed(() =>
+      todos.value.filter((t) =>
+        filter.value === 'all'
+          ? true
+          : filter.value === 'done'
+            ? t.done
+            : !t.done,
+      ),
+    );
+    const sorted = computed(() =>
+      [...visible.value].sort((a, b) =>
+        a[sortBy.value] < b[sortBy.value] ? -1 : 1,
+      ),
+    );
+    const count = computed(() => sorted.value.length);
+    return { visible, sorted, count };
+  }),
+);
+
+store.sorted.value; // filtered → sorted Todo[]
+store.count.value; // length of the visible+sorted view
+```
+
+`sorted` reads `visible.value`, and `count` reads `sorted.value` — selectors built
+on selectors, all in one `withComputed`.
+
+## Selectors that read other selectors
+
+There are two ways to chain. **In one `withComputed`**, capture the upstream
+`computed` in a `const` before you return it, then read its `.value` from the next
+one (the Quick start above).
+
+**Across two `withComputed` features** — features compose left to right, so the
+second call receives the first's output in its accumulator, exactly like
+`withMethods((s) => …)` receives state:
+
+```ts
+signalStore(
+  withState({ todos: [] as Todo[], filter: 'all' as 'all' | 'active' | 'done' }),
+  withComputed(({ todos, filter }) => ({
+    visible: computed(() =>
+      todos.value.filter((t) => (filter.value === 'all' ? true : t.done)),
+    ),
+  })),
+  withComputed(({ visible }) => ({
+    count: computed(() => visible.value.length),
+  })),
+);
+```
+
+The second `withComputed` sees `visible` because it was composed before it. The
+order is load-bearing — a feature can only reference state and selectors declared
+**to its left**.
+
+## Memoization semantics
+
+A Preact `computed` recomputes only when a signal it actually read during its last
+run changes. Chaining preserves that: with the Quick start store, changing `sortBy`
+recomputes `sorted` and `count` but **not** `visible` — `visible` never read
+`sortBy`, so it isn't invalidated. Changing `filter` invalidates the whole chain;
+toggling a `todo` field that no selector reads invalidates nothing.
+
+This is the same caveat the [Entities guide](/signal-store/guides/entities/#filtering-and-derived-views)
+calls out: a selector only tracks signals it reads **while executing**. A branch
+not taken doesn't subscribe, and a plain (non-signal) variable captured in the
+closure won't trigger a recompute when it changes — lift it into state.
+
+## With the entities package
+
+Derive straight off the `entities` signal — same chaining, normalized source:
+
+```ts
+import { withEntities, entityConfig } from '@fluch/signal-store-entities';
+
+const cfg = entityConfig<Todo>();
+
+const todos = signalStore(
+  withEntities(cfg),
+  withComputed(({ entities }) => ({
+    pending: computed(() => entities.value.filter((t) => !t.done)),
+  })),
+  withComputed(({ pending }) => ({
+    pendingCount: computed(() => pending.value.length),
+  })),
+);
+```
+
+See [Filtering and derived views](/signal-store/guides/entities/#filtering-and-derived-views)
+for more on deriving from collections.
+
+## Gotchas
+
+- Never sort/splice the array in place: `[...arr].sort()`, not `arr.sort()`.
+  Mutating the upstream array corrupts state and breaks memoization downstream.
+- A `computed` tracks only signals read **during execution**. Conditional reads
+  behind a branch that didn't run won't re-trigger it — be deliberate with
+  short-circuits.
+- Capturing a non-signal external (a plain `let`, a prop) inside `computed` won't
+  recompute when it changes. Put reactive inputs in `withState`.
+- Composition order matters: a `withComputed` can only reference state/selectors
+  declared before it in the `signalStore(...)` call.
+
+## See also
+
+- [Entities](/signal-store/guides/entities/) — deriving views over collections
+- [Your first store](/signal-store/getting-started/first-store/) — `withComputed` basics

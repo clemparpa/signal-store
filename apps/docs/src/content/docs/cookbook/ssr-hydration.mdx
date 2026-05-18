@@ -1,0 +1,160 @@
+---
+title: SSR hydration & restore from localStorage
+description: Persist store state to localStorage and restore it on the client without breaking SSR hydration — guarded with typeof window and a post-hydration effect.
+---
+
+signal-store is SSR-safe by construction. The thing you have to get right yourself
+is browser-only persistence: `localStorage` doesn't exist on the server, and
+restoring it at the wrong time breaks React hydration.
+
+## Why it's safe by default
+
+Nothing in the library reaches for a browser global, and the access to `process`
+is guarded — so importing and constructing a store on the server doesn't throw.
+More importantly, there's no shared mutable state to leak between requests:
+
+- `signalStore(...)` returns a **fresh instance per call** — there is no
+  module-level singleton holding state.
+- The React [`<Provider>`](/signal-store/guides/react/) builds its store with
+  `useState(() => factory())`, so every request gets its own isolated instance.
+- Signal reads are **synchronous**, so a server render and the first client render
+  produce the same HTML — no async hydration gap.
+
+The single rule you must follow: **never read `localStorage` on the server, and
+never let restored state change what the server rendered.**
+
+## Quick start
+
+Persist a serializable slice, and restore it **after** hydration:
+
+```tsx
+import { useEffect } from 'react';
+import {
+  signalStore,
+  withState,
+  withMethods,
+  withHooks,
+  patchState,
+} from '@fluch/signal-store';
+import { createStoreContext } from '@fluch/signal-store-react';
+
+const KEY = 'todo-app-state-v1';
+
+type Filter = 'all' | 'active' | 'done';
+
+function loadPersisted(): Partial<{ filter: Filter }> {
+  if (typeof window === 'undefined') return {};
+  try {
+    return JSON.parse(window.localStorage.getItem(KEY) ?? '{}');
+  } catch {
+    return {}; // corrupt or stale payload → fall back to defaults
+  }
+}
+
+function makeStore() {
+  let unsub: (() => void) | undefined;
+
+  return signalStore(
+    withState({ filter: 'all' as Filter }),
+    withMethods((s) => ({
+      setFilter: (filter: Filter) => patchState(s, { filter }),
+    })),
+    // withHooks composed LAST so it sees the fully assembled store.
+    withHooks({
+      onInit(s) {
+        if (typeof window === 'undefined') return; // never persist on the server
+        // Writes only — this never changes render output, so it's hydration-safe.
+        unsub = s.filter.subscribe((filter) => {
+          window.localStorage.setItem(KEY, JSON.stringify({ filter }));
+        });
+      },
+      onDestroy() {
+        unsub?.();
+      },
+    }),
+  );
+}
+
+const { Provider, useStore } = createStoreContext(makeStore);
+
+// Restore AFTER the hydration render — inside an effect, never during render.
+function StoreHydrator({ children }: { children: React.ReactNode }) {
+  const store = useStore();
+  useEffect(() => {
+    const saved = loadPersisted();
+    if (saved.filter) store.setFilter(saved.filter);
+  }, []);
+  return <>{children}</>;
+}
+
+export function App() {
+  return (
+    <Provider>
+      <StoreHydrator>{/* …app… */}</StoreHydrator>
+    </Provider>
+  );
+}
+```
+
+## The hydration-mismatch trap
+
+It's tempting to restore inside `withHooks.onInit`. Don't — for SSR.
+
+`onInit` runs synchronously **when `signalStore(...)` is called**, which for the
+Provider is *during render* (`useState` lazy init). On the client, that first
+render **is the hydration render**. If `onInit` restored from `localStorage` there,
+the client would render restored state while the server HTML used the defaults —
+a hydration mismatch and a visible flash.
+
+The server can't know `localStorage` (it's client-only), so persisted state can
+**only** be applied client-side, and only **after** hydration commits. That's why
+the restore lives in a `useEffect`:
+
+- the hydration render uses defaults → matches the server HTML;
+- the effect runs post-commit and applies the saved slice → one clean re-render.
+
+Writing to `localStorage` is fine in `onInit` because a subscription that only
+calls `setItem` never changes render output — there's nothing to mismatch.
+
+If you want to avoid the brief default→restored flicker, gate the UI on a
+`hydrated` flag flipped in the same effect and render a skeleton until then.
+
+## Mode A (module singleton) without SSR
+
+If a store is created at module scope and that subtree is **not** server-rendered,
+restoring in `onInit` is fine — there's no hydration render to diverge from:
+
+```ts
+export const store = signalStore(
+  withState({ filter: 'all' as Filter }),
+  withHooks({
+    onInit(s) {
+      const saved = loadPersisted();
+      if (saved.filter) patchState(s, { filter: saved.filter });
+    },
+  }),
+);
+```
+
+Use this only when you're certain the component tree reading `store` is
+client-only. Under SSR, prefer the effect-based restore above.
+
+## Gotchas
+
+- Every `window` / `localStorage` access must be `typeof window !== 'undefined'`
+  guarded — an unguarded read throws at module load on the server.
+- Restored state must **not** change server-rendered HTML. Restore in a
+  post-hydration effect, never during render (so never in `onInit` under SSR).
+- Version the storage key (`-v1`) and `try/catch` the `JSON.parse` — an old or
+  corrupt payload must fall back to defaults, not throw.
+- Persist only a **serializable slice**. Never stringify computed signals, class
+  instances, or functions.
+- `withHooks` must be composed **last** so its callbacks see every feature at the
+  type level (they always see the full store at runtime).
+- `signal.subscribe` fires immediately with the current value, so the first
+  `setItem` happens on subscribe — harmless, just expected.
+
+## See also
+
+- [React Provider](/signal-store/guides/react/) — Provider lifecycle & per-request isolation
+- [rxMethod — `toObservable`](/signal-store/guides/rx-method/#toobservable--bridge-a-signal-into-a-wider-rxjs-pipeline) — persist a change stream via RxJS instead

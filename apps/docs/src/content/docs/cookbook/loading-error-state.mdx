@@ -1,0 +1,166 @@
+---
+title: Loading & error state around rxMethod
+description: A copy-paste pattern for tracking data, loading, and error around an async rxMethod pipeline — with catchError placed so one failure never kills the method.
+---
+
+Almost every async store ends up needing the same three-field shape: the data, an
+`in-flight` flag, and the last error. This recipe is the canonical way to wire that
+trio around an [`rxMethod`](/signal-store/guides/rx-method/) pipeline so a spinner
+and an error banner fall out for free.
+
+Reach for it when you have:
+
+- a fetch-on-demand resource (load by id, refresh button);
+- a search box where you want a spinner while results stream in;
+- any request you want to retry without leaving a stale error on screen.
+
+## Quick start
+
+```ts
+import {
+  signalStore,
+  withState,
+  withMethods,
+  rxMethod,
+  patchState,
+} from '@fluch/signal-store';
+import { from, EMPTY } from 'rxjs';
+import { tap, switchMap, catchError } from 'rxjs/operators';
+
+type User = { id: string; name: string };
+
+declare const api: { loadUser(id: string): Promise<User> };
+
+export const userStore = signalStore(
+  withState({
+    data: null as User | null,
+    loading: false,
+    error: null as string | null,
+  }),
+  withMethods((store) => ({
+    load: rxMethod<string>(store, (id$) =>
+      id$.pipe(
+        tap(() => patchState(store, { loading: true, error: null })),
+        switchMap((id) =>
+          from(api.loadUser(id)).pipe(
+            catchError((err) => {
+              patchState(store, { error: String(err), loading: false });
+              return EMPTY;
+            }),
+          ),
+        ),
+        tap((data) => patchState(store, { data, loading: false })),
+      ),
+    ),
+  })),
+);
+
+userStore.load('id-123');
+```
+
+`load` accepts a scalar, a `Signal<string>`, or an `Observable<string>` — all three
+feed the same pipeline (see [the three input shapes](/signal-store/guides/rx-method/#three-input-shapes)).
+
+## Why `catchError` goes inside `switchMap`
+
+An RxJS pipeline that errors **terminates its subscription**. Because `rxMethod`
+subscribes the pipeline exactly once, a top-level error means the method is dead for
+the rest of the store's life — every later call is a silent no-op.
+
+```ts
+// WRONG — one failed request kills `load` forever
+id$.pipe(
+  switchMap((id) => from(api.loadUser(id))),
+  catchError((err) => {
+    patchState(store, { error: String(err) });
+    return EMPTY;
+  }),
+);
+```
+
+```ts
+// RIGHT — the error is contained to the inner observable; the outer
+// pipeline never sees it, so the method survives for the next call
+id$.pipe(
+  switchMap((id) =>
+    from(api.loadUser(id)).pipe(
+      catchError((err) => {
+        patchState(store, { error: String(err), loading: false });
+        return EMPTY;
+      }),
+    ),
+  ),
+);
+```
+
+This is the same rule as the [Error handling](/signal-store/guides/rx-method/#error-handling)
+section of the rxMethod guide, framed for load state.
+
+## Resetting error on retry
+
+The `tap` at the head of the pipeline does double duty: it sets `loading: true`
+**and** clears `error: null`. Without that reset, a retry after a failure would show
+the spinner next to a stale error banner until the new request resolves.
+
+If you also want the previous data cleared while a refetch is in flight, add it to
+the same head `tap`:
+
+```ts
+tap(() => patchState(store, { loading: true, error: null, data: null })),
+```
+
+Keep `data` if you prefer "stale-while-revalidate" — the old value stays visible
+under the spinner until the fresh one arrives.
+
+## Reading it in React
+
+Scope the store with [`createStoreContext`](/signal-store/guides/react/) and read the
+three fields. `@fluch/signal-store-react` doesn't bundle reactivity, so either set up
+`@preact/signals-react` (the path the [React Provider guide](/signal-store/guides/react/)
+documents) and read `store.x.value` directly in JSX, or use this dependency-free hook:
+
+```tsx
+import { useState, useEffect } from 'react';
+import { createStoreContext } from '@fluch/signal-store-react';
+
+function useSignalValue<T>(sig: {
+  peek(): T;
+  subscribe(cb: (v: T) => void): () => void;
+}): T {
+  const [value, setValue] = useState(sig.peek());
+  useEffect(() => sig.subscribe(setValue), [sig]);
+  return value;
+}
+
+const { Provider, useStore } = createStoreContext(() => userStore);
+
+function UserCard({ id }: { id: string }) {
+  const store = useStore();
+  const loading = useSignalValue(store.loading);
+  const error = useSignalValue(store.error);
+  const data = useSignalValue(store.data);
+
+  useEffect(() => store.load(id), [id]);
+
+  if (loading) return <p>Loading…</p>;
+  if (error) return <p role="alert">{error}</p>;
+  return <p>{data?.name ?? 'No user'}</p>;
+}
+```
+
+## Gotchas
+
+- `EMPTY` is imported from `rxjs`, not `rxjs/operators` — a frequent mix-up.
+- `catchError` must live **inside** the inner observable returned by `switchMap`
+  (or `mergeMap`/`concatMap`). At the top level it kills the method permanently.
+- Don't drive loading state from the method's return value. A scalar invocation
+  returns `Subscription.EMPTY`; the source of truth is the `patchState` calls inside
+  the `tap`/`catchError` operators.
+- Without `@preact/signals-react`, reading `store.data.value` in JSX will **not**
+  re-render — use the `useSignalValue` hook above or the signals-react plugin.
+
+## See also
+
+- [rxMethod — async, cancellable side effects](/signal-store/guides/rx-method/)
+- [React Provider](/signal-store/guides/react/)
+- [Optimistic update & rollback](/signal-store/cookbook/optimistic-update-rollback/)

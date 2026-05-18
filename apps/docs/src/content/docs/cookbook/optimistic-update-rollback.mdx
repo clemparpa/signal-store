@@ -1,0 +1,150 @@
+---
+title: Optimistic update & rollback
+description: Apply an entity change immediately, fire the request, and roll back to a captured snapshot if it fails — using the entities updaters with patchState.
+---
+
+Optimistic UI means mutating local state **now**, firing the request in the
+background, and reverting if the server rejects it. The entities updaters make this
+clean: mutate with `updateEntity`, capture a snapshot first, and restore it with
+`setEntity` on failure.
+
+Reach for it when latency would make the UI feel laggy:
+
+- toggles (done / starred / liked);
+- inline edits committed on blur;
+- list add/remove where the round-trip is slow.
+
+## Quick start
+
+```ts
+import {
+  signalStore,
+  withMethods,
+  rxMethod,
+  patchState,
+} from '@fluch/signal-store';
+import {
+  entityConfig,
+  withEntities,
+  updateEntity,
+  setEntity,
+} from '@fluch/signal-store-entities';
+import { from, EMPTY } from 'rxjs';
+import { tap, switchMap, catchError } from 'rxjs/operators';
+
+type Todo = { id: string; title: string; done: boolean };
+
+const cfg = entityConfig<Todo>();
+
+declare const api: { toggle(id: string): Promise<void> };
+
+export const todos = signalStore(
+  withEntities(cfg),
+  withMethods((s) => ({
+    toggle: rxMethod<string>(s, (id$) =>
+      id$.pipe(
+        switchMap((id) => {
+          // Capture BEFORE mutating, once per invocation.
+          const prev = s.entityMap.value[id];
+          patchState(s, updateEntity({ id, changes: (t) => ({ done: !t.done }) }, cfg));
+
+          return from(api.toggle(id)).pipe(
+            catchError(() => {
+              if (prev) patchState(s, setEntity(prev, cfg));
+              return EMPTY;
+            }),
+          );
+        }),
+      ),
+    ),
+  })),
+);
+
+todos.toggle('todo-1');
+```
+
+The collection exposes `todos.ids`, `todos.entityMap`, and `todos.entities` — see the
+[Entities guide](/signal-store/guides/entities/).
+
+## Capture before you mutate
+
+This is the load-bearing detail. The snapshot must be read **before** the optimistic
+`patchState`, and it must be captured **per invocation**:
+
+```ts
+const prev = s.entityMap.value[id]; // read first
+patchState(s, updateEntity({ id, changes: (t) => ({ done: !t.done }) }, cfg));
+```
+
+Read it the other way around and `prev` is already the mutated entity, so the
+rollback restores the wrong (new) value — a silent no-op that looks like it works
+until a request actually fails. Keep the capture inside the `switchMap` callback so
+it closes over **that** call's value; a `const` in outer scope would be overwritten
+by the next invocation while the first is still in flight.
+
+## Why `setEntity` for the rollback (not `updateEntity`)
+
+`setEntity(prev, cfg)` is an upsert: it restores the exact captured object even if
+the entity was removed by some other code path while the request was in flight.
+
+`updateEntity` shallow-merges and is a **silent no-op when the id is unknown** — if
+the entity vanished mid-flight, your rollback would do nothing. `setEntity` is the
+robust choice. See [`add` vs `set`](/signal-store/guides/entities/#add-vs-set--the-one-subtle-difference)
+for the exact semantics.
+
+## List-level optimistic add / remove
+
+Same shape, different updaters:
+
+```ts
+import { addEntity, removeEntity } from '@fluch/signal-store-entities';
+
+// Optimistic create — drop it back out if the server rejects.
+add: rxMethod<Todo>(s, (todo$) =>
+  todo$.pipe(
+    switchMap((todo) => {
+      patchState(s, addEntity(todo, cfg));
+      return from(api.create(todo)).pipe(
+        catchError(() => {
+          patchState(s, removeEntity(todo.id, cfg));
+          return EMPTY;
+        }),
+      );
+    }),
+  ),
+),
+
+// Optimistic delete — restore the captured entity on failure.
+remove: rxMethod<string>(s, (id$) =>
+  id$.pipe(
+    switchMap((id) => {
+      const prev = s.entityMap.value[id];
+      patchState(s, removeEntity(id, cfg));
+      return from(api.remove(id)).pipe(
+        catchError(() => {
+          if (prev) patchState(s, setEntity(prev, cfg));
+          return EMPTY;
+        }),
+      );
+    }),
+  ),
+),
+```
+
+## Gotchas
+
+- Capture the snapshot **before** the optimistic `patchState`, and **inside** the
+  per-invocation callback — an outer-scope `const` races across concurrent calls.
+- `switchMap` is last-write-wins per stream: a second `toggle` cancels the first,
+  including its rollback. For independent per-id mutations prefer `mergeMap` (or
+  `concatMap` to serialize) — see [stateful operators](/signal-store/guides/rx-method/#stateful-operators-across-invocations).
+- `catchError` goes inside the inner observable, never at the top level (it would
+  kill the method — same rule as the [loading & error recipe](/signal-store/cookbook/loading-error-state/)).
+- `updateEntity` / `removeEntity` are silent no-ops on unknown ids; rolling back
+  with `setEntity(prev, cfg)` is the safe path.
+
+## See also
+
+- [Entities](/signal-store/guides/entities/)
+- [rxMethod — async, cancellable side effects](/signal-store/guides/rx-method/)
+- [Loading & error state](/signal-store/cookbook/loading-error-state/)

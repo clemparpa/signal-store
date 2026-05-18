@@ -53,6 +53,21 @@ export default defineConfig({
           ],
         },
         {
+          label: 'Cookbook',
+          items: [
+            { label: 'Loading & error state', slug: 'cookbook/loading-error-state' },
+            {
+              label: 'Optimistic update & rollback',
+              slug: 'cookbook/optimistic-update-rollback',
+            },
+            { label: 'SSR hydration & localStorage', slug: 'cookbook/ssr-hydration' },
+            {
+              label: 'Chained derived selectors',
+              slug: 'cookbook/chained-computed-selectors',
+            },
+          ],
+        },
+        {
           label: 'Agent skill',
           items: [{ label: 'AI Agent Skill', slug: 'agent-skill' }],
         },

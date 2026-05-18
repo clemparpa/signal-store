@@ -28,7 +28,7 @@
   },
   "peerDependencies": {
     "@preact/signals-core": "^1.8.0",
-    "@preact/signals-react": "^2.0.0",
+    "@preact/signals-react": "^3.10.1",
     "react": ">=18"
   },
   "publishConfig": {
@@ -36,7 +36,7 @@
   },
   "devDependencies": {
     "@preact/signals-core": "^1.8.0",
-    "@preact/signals-react": "^2.0.0",
+    "@preact/signals-react": "^3.10.1",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.2",
     "@types/react": "^19.2.14",
